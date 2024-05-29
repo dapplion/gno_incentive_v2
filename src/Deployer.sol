@@ -2,13 +2,20 @@
 pragma solidity ^0.8.13;
 
 import "safe-smart-account/contracts/Safe.sol";
+import "safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
+import "safe-smart-account/contracts/proxies/SafeProxy.sol";
 
 contract Deployer {
-    uint256 public number;
+    uint256 nonce = 0;
 
-    function deploy(uint256 newNumber) public {
-        GnosisSafeProxy proxy = proxyFactory.createProxy(
-            address(gnosisSafe),
+    function deploy(SafeProxyFactory proxyFactory, address gnosisSafe, address funder, address benefactor) public {
+        uint256 threshold = 2;
+        address[2] memory owners;
+        owners[0] = benefactor;
+        owners[1] = funder;
+
+        SafeProxy proxy = proxyFactory.createProxyWithNonce(
+            gnosisSafe,
             abi.encodeWithSignature(
                 "setup(address[],uint256,address,bytes,address,address,uint256,address)",
                 // _owners List of Safe owners.
@@ -27,12 +34,9 @@ contract Deployer {
                 uint256(0),
                 // paymentReceiver Address that should receive the payment (or 0 if tx.origin)
                 address(0)
-            )
+            ),
+            nonce
         );
-        proxy.enableModule(module_address);
-    }
-
-    function increment() public {
-        number++;
+        nonce += 1;
     }
 }

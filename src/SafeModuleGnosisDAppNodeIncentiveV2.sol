@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "safe-smart-account/contracts/interfaces/IModuleManager.sol";
+import "safe-smart-account/contracts/Safe.sol";
+import "safe-smart-account/contracts/common/Enum.sol";
+
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+}
 
 contract SafeModuleGnosisDAppNodeIncentiveV2 {
     // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator
@@ -11,21 +16,37 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
     // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beaconstate
     uint256 private constant STATE_VALIDATORS_INDEX = 11;
 
+    // This network's beacon genesis time
+    uint256 private genesisTime;
+    // This network's SECONDS_PER_SLOT * SLOTS_PER_EPOCH constant
+    uint256 private secondsPerEpoch;
+    // Funder address that will be removed on removeFunderOwner
+    address private funder;
+    // Address of the token to claim withdrawals from
+    IERC20 private withdrawalToken;
+    // EIP-4788 contract
+    address private eip4788Contract;
+
     struct UserInfo {
         // Expiry timestamp
         uint256 expiry;
         // Balance threshold
         uint256 threshold;
+        // Benefactor address
+        address benefactor;
+        // Funder address
+        address funder;
         // Array of BLS pubkey hashes
         bytes32[] pubkeyHashes;
     }
 
-    mapping(address => UserInfo) public userInfos;
+    mapping(Safe => UserInfo) public userInfos;
 
-    function registerSafe(_info UserInfo) public {
-        require(userInfos[msg.sender].expiry == 0, "already registered");
+    function registerSafe(UserInfo calldata _info) public {
+        Safe sender = Safe(payable(msg.sender));
+        require(userInfos[sender].expiry == 0, "already registered");
         require(_info.expiry > block.timestamp, "must expire in the future");
-        userInfos[msg.sender] = _info;
+        userInfos[sender] = _info;
     }
 
     /**
@@ -33,13 +54,15 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
      * after expiry.
      * @param from Address of Safe to remove funder owner from
      */
-    function removeFunderOwner(address from) external {
-        UserInfo info = userInfos[from];
+    function removeFunderOwner(Safe from) external {
+        UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         require(info.expiry < block.timestamp, "not expired");
-        tx = OwnerManager.removeOwner(prevOwner, funder_address, 1);
-        // TODO: Handle return properly if this function reverts
-        IModuleManager(_safe).execTransactionFromModule(safe_address, 0, tx, DelegateCall);
+        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", funder, funder, 1);
+        require(
+            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
+            "error safe exec removeOwner"
+        );
     }
 
     /**
@@ -48,12 +71,13 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
      * holds over `threshold` of balance the caller must provide a proof of the validator's status.
      * If at some validator is exited, the funds are transfered to the funder. Otherwise, the funds
      * are transfered to the benefactor.
-     * @param to Address of Safe to withdraw funds from
+     * @param from Address of Safe to withdraw funds from
      * @param exitProofs Optional merkle proofs for validator status
      */
-    function withdrawBalance(address from, bytes[] exitProofs) external {
-        UserInfo info = userInfos[from];
+    function withdrawBalance(Safe from, bytes[] calldata exitProofs) external {
+        UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
+        uint256 balance = withdrawalToken.balanceOf(address(from));
 
         address transfer_to;
         if (
@@ -61,31 +85,35 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
                 // If past expiry, always transfer to benefactor
                 .expiry >= block.timestamp
             // If under threshold, always transfer to benefactor
-            || balance < threshold
+            || balance < info.threshold
             // else proof that at least one validator is exited, or all are not exited
             || !isSomeValidatorExited(info.pubkeyHashes, exitProofs)
         ) {
-            transfer_to = benefactor;
+            transfer_to = info.benefactor;
         } else {
-            transfer_to = funder;
+            transfer_to = info.funder;
         }
 
-        tx = ERC20.transfer(transfer_to, balance);
-        // TODO: Handle return properly if this function reverts
-        IModuleManager(_safe).execTransactionFromModule(token_address, 0, tx, DelegateCall);
+        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", transfer_to, balance);
+        require(
+            Safe(from).execTransactionFromModule(address(withdrawalToken), 0, data, Enum.Operation.Call),
+            "error safe exec transfer"
+        );
     }
 
-    function isSomeValidatorExited(bytes32[] pubkeyHashes, bytes[] exitProofs) internal {
-        // TODO: Should check:
-        // Given the following input data:
-        // - List of indexes of each validator in the state: uint64[] indexes
-        // - List of
-        // Given index `N`, check that
-        // - `hash_tree_root(state.validators[N].pubkey) == pubkey_hashes[i]`
-        // - `hash_tree_root(state.validators[N].pubkey) == pubkey_hashes[i]`
-        for (uint256 i = 0; i < pubkey_hashes.length; i++) {
-            uint64 withdrawable_epoch = assertValidExitProof(pubkey_hashes[i], exitProofs[i]);
-            if (withdrawable_epoch > current_epoch) {
+    /**
+     * @notice Given a pre-registered list of pubkey hashes, checks that a list of exitProofs are correct
+     * and then checks if any of the validator records corresponding to the pubkey hashes are withdrawn
+     */
+    function isSomeValidatorExited(bytes32[] storage pubkeyHashes, bytes[] calldata exitProofs)
+        internal
+        returns (bool)
+    {
+        bytes32 expectedStateRoot = getEip4788Root();
+
+        for (uint256 i = 0; i < pubkeyHashes.length; i++) {
+            uint64 withdrawableEpoch = assertValidExitProof(pubkeyHashes[i], exitProofs[i], expectedStateRoot);
+            if (withdrawableEpoch > getCurrentEpoch()) {
                 return true;
             }
         }
@@ -102,37 +130,45 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
      * code won't break as long as as there no change in the ordering of existing properties.
      * If SSZ stable containers are implemented this code will break.
      */
-    function assertValidExitProof(bytes32 pubkeyHash, bytes data) internal pure returns (uint64) {
+    function assertValidExitProof(bytes32 pubkeyHash, bytes calldata data, bytes32 expectedStateRoot)
+        internal
+        pure
+        returns (uint64)
+    {
         (
             bytes32[] memory pubkeyProof,
-            bytes32[] memory slashedProof,
+            bytes32[] memory withdrawableEpochProof,
             bytes32[] memory validatorProof,
             bytes32[] memory stateProof,
-            uint64 validator_index,
-            uint64 withdrawable_epoch
+            uint64 validatorIndex,
+            uint64 withdrawableEpoch
         ) = abi.decode(data, (bytes32[], bytes32[], bytes32[], bytes32[], uint64, uint64));
 
-        bytes32 validator_root_pk = computeMerkleBranch(pubkey_hash, pubkeyProof, VALIDATOR_PUBKEY_INDEX);
+        bytes32 validatorRootPk = computeMerkleBranch(pubkeyHash, pubkeyProof, VALIDATOR_PUBKEY_INDEX);
         // TODO: I think this is wrong, beacon chain is little endian
-        bytes32 withdrawable_epoch_leaf = abi.encode(withdrawable_epoch);
-        bytes32 validator_root_we =
-            computeMerkleBranch(withdrawable_epoch_leaf, withdrawable_epoch_proof, VALIDATOR_WITHDRAWABLE_EPOCH_INDEX);
-        require(validator_root_pk == validator_root_we, "inconsistent validator proofs");
+        bytes32 withdrawableEpochLeaf = toLittleEndianLeaf(withdrawableEpoch);
+        bytes32 validatorRootWe =
+            computeMerkleBranch(withdrawableEpochLeaf, withdrawableEpochProof, VALIDATOR_WITHDRAWABLE_EPOCH_INDEX);
+        require(validatorRootPk == validatorRootWe, "inconsistent validator proofs");
 
-        bytes32 validators_root = computeMerkleBranch(validator_root_pk, validatorProof, index);
-        bytes32 state_root = computeMerkleBranch(validators_root, stateProof, STATE_VALIDATORS_INDEX);
+        bytes32 validatorsRoot = computeMerkleBranch(validatorRootPk, validatorProof, validatorIndex);
+        bytes32 stateRoot = computeMerkleBranch(validatorsRoot, stateProof, STATE_VALIDATORS_INDEX);
 
-        require(state_root == getEip4788Root(), "invalid_proof");
-        return withdrawable_epoch;
+        require(stateRoot == expectedStateRoot, "invalid_proof");
+        return withdrawableEpoch;
     }
 
     /**
      * @notice Computes a merkle root given a branch of some depth.
      * Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#is_valid_merkle_branch
      */
-    function computeMerkleBranch(bytes32 leaf, bytes32[] memory branch, uint64 index) internal pure returns (bytes32) {
+    function computeMerkleBranch(bytes32 leaf, bytes32[] memory branch, uint256 index)
+        internal
+        pure
+        returns (bytes32)
+    {
         bytes32 value = leaf;
-        for (uint64 i = 0; i < branch.length; i++) {
+        for (uint256 i = 0; i < branch.length; i++) {
             if ((index / (2 ** i)) % 2 == 1) {
                 value = keccak256(abi.encodePacked(branch[i], value));
             } else {
@@ -142,7 +178,7 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
         return value;
     }
 
-    function toLittleEndian64(uint64 value) internal pure returns (bytes32 ret) {
+    function toLittleEndianLeaf(uint64 value) internal pure returns (bytes32) {
         bytes memory result = new bytes(8);
         result[0] = bytes1(uint8(value));
         result[1] = bytes1(uint8(value >> 8));
@@ -159,5 +195,15 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
             paddedResult := mload(add(result, 32))
         }
         return paddedResult;
+    }
+
+    function getEip4788Root() internal returns (bytes32) {
+        (bool success, bytes memory data) = eip4788Contract.call(abi.encode(block.timestamp));
+        require(success, "EIP4788 call failed");
+        return abi.decode(data, (bytes32));
+    }
+
+    function getCurrentEpoch() internal view returns (uint256) {
+        return (block.timestamp - genesisTime) / secondsPerEpoch;
     }
 }
