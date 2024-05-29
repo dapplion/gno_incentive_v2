@@ -52,11 +52,23 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         eip4788Contract = _eip4788Contract;
     }
 
-    function registerSafe(UserInfo calldata _info) public {
+    function registerSafe(
+        uint256 expiry,
+        uint256 threshold,
+        address benefactor,
+        address funder,
+        bytes32[] calldata pubkeyHashes
+    ) public {
         Safe sender = Safe(payable(msg.sender));
         require(userInfos[sender].expiry == 0, "already registered");
-        require(_info.expiry > block.timestamp, "must expire in the future");
-        userInfos[sender] = _info;
+        require(expiry > block.timestamp, "must expire in the future");
+        userInfos[sender] = UserInfo(
+            expiry,
+            threshold,
+            benefactor,
+            funder,
+            pubkeyHashes
+        );
     }
 
     /**

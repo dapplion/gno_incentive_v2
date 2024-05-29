@@ -27,32 +27,19 @@ contract GnosisDAppNodeIncentiveV2Deployer {
     }
 
     function deploy(
-        address funder,
-        address benefactor,
+        address[] calldata funder_benefactor,
         uint256 expiry,
         bytes32[] calldata pubkeyHashes
     ) public returns(SafeProxy) {
         uint256 threshold = 2;
-        address[2] memory owners;
-        owners[0] = benefactor;
-        owners[1] = funder;
-
-        GnosisDAppNodeIncentiveV2SafeModule.UserInfo memory info = GnosisDAppNodeIncentiveV2SafeModule.UserInfo(
-            // Expiry timestamp
-            expiry,
-            // Balance threshold
-            threshold,
-            // Benefactor address
-            benefactor,
-            // Funder address
-            funder,
-            // Array of BLS pubkey hashes
-            pubkeyHashes
-        );
+        // Passing a `address[] calldata` here because contructing a memory array here causes the init
+        // call to revert without an explicit reason.
+        address funder = funder_benefactor[0];
+        address benefactor = funder_benefactor[1];
 
         bytes memory setupModulesData = abi.encodeWithSignature(
-            "setup(address,SafeModuleGnosisDAppNodeIncentiveV2.UserInfo)",
-            safeModule, info
+            "setupModule(address,uint256,uint256,address,address,bytes32[])",
+            safeModule, expiry, threshold, benefactor, funder, pubkeyHashes
         );
 
         SafeProxy proxy = proxyFactory.createProxyWithNonce(
@@ -60,7 +47,7 @@ contract GnosisDAppNodeIncentiveV2Deployer {
             abi.encodeWithSignature(
                 "setup(address[],uint256,address,bytes,address,address,uint256,address)",
                 // _owners List of Safe owners.
-                owners,
+                funder_benefactor,
                 // _threshold Number of required confirmations for a Safe transaction.
                 threshold,
                 // to Contract address for optional delegate call. Calls setupModules

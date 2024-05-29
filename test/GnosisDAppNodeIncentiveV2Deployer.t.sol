@@ -37,6 +37,10 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     function test_deploy() public {
         address funder = vm.addr(1);
         address benefactor = vm.addr(2);
+        address[] memory funder_benefactor = new address[](2);
+        funder_benefactor[0] = funder;
+        funder_benefactor[1] = benefactor;
+
         uint256 expiry = block.timestamp + 365 days;
         bytes32[] memory pubkeyHashes = new bytes32[](3);
         pubkeyHashes[0] = bytes32(uint256(0xaa));
@@ -44,8 +48,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         pubkeyHashes[2] = bytes32(uint256(0xcc));
 
         deployer.deploy(
-            funder,
-            benefactor,
+            funder_benefactor,
             expiry,
             pubkeyHashes
         );
