@@ -8,7 +8,7 @@ interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
 }
 
-contract SafeModuleGnosisDAppNodeIncentiveV2 {
+contract GnosisDAppNodeIncentiveV2SafeModule {
     // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator
     uint256 private constant VALIDATOR_PUBKEY_INDEX = 0;
     // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator
@@ -20,8 +20,6 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
     uint256 private genesisTime;
     // This network's SECONDS_PER_SLOT * SLOTS_PER_EPOCH constant
     uint256 private secondsPerEpoch;
-    // Funder address that will be removed on removeFunderOwner
-    address private funder;
     // Address of the token to claim withdrawals from
     IERC20 private withdrawalToken;
     // EIP-4788 contract
@@ -42,6 +40,18 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
 
     mapping(Safe => UserInfo) public userInfos;
 
+    constructor(
+        uint256 _genesisTime,
+        uint256 _secondsPerEpoch,
+        address _withdrawalToken,
+        address _eip4788Contract
+    ) {
+        genesisTime = _genesisTime;
+        secondsPerEpoch = _secondsPerEpoch;
+        withdrawalToken = IERC20(_withdrawalToken);
+        eip4788Contract = _eip4788Contract;
+    }
+
     function registerSafe(UserInfo calldata _info) public {
         Safe sender = Safe(payable(msg.sender));
         require(userInfos[sender].expiry == 0, "already registered");
@@ -58,7 +68,10 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         require(info.expiry < block.timestamp, "not expired");
-        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", funder, funder, 1);
+        bytes memory data = abi.encodeWithSignature(
+            "removeOwner(address,address,uint256)",
+            info.funder, info.funder, 1
+        );
         require(
             from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
             "error safe exec removeOwner"
@@ -94,7 +107,10 @@ contract SafeModuleGnosisDAppNodeIncentiveV2 {
             transfer_to = info.funder;
         }
 
-        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", transfer_to, balance);
+        bytes memory data = abi.encodeWithSignature(
+            "transfer(address,uint256)",
+            transfer_to, balance
+        );
         require(
             Safe(from).execTransactionFromModule(address(withdrawalToken), 0, data, Enum.Operation.Call),
             "error safe exec transfer"
