@@ -15,6 +15,12 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
     uint256 private constant VALIDATOR_WITHDRAWABLE_EPOCH_INDEX = 7;
     // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beaconstate
     uint256 private constant STATE_VALIDATORS_INDEX = 11;
+    // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#validator
+    uint256 private constant VALIDATOR_TREE_MIN_DEPTH = 3;
+    // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beaconstate
+    uint256 private constant VALIDATORS_TREE_MIN_DEPTH = 40;
+    // Ref: https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#beaconstate
+    uint256 private constant STATE_TREE_MIN_DEPTH = 4;
 
     // This network's beacon genesis time
     uint256 private genesisTime;
@@ -171,6 +177,22 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
             uint64 validatorIndex,
             uint64 withdrawableEpoch
         ) = abi.decode(data, (bytes32[], bytes32[], bytes32[], bytes32[], uint64, uint64));
+
+        // Require proofs to have minimal at the current fork. Otherwise an attacker can exploit the proofs
+        // by providing an empty proof and manipulating the others to read unexpected data.
+        // 
+        // h/t @etan for the attack
+        // - pubkey proof: start with correct one but extend it all the way to htr(validators) by extending
+        //   with right side hashes
+        // - withdrawable_epoch proof: instead of your own validator, pick the one from validator 0 and
+        //   also extend the proof to htr(validators) only adding hashes on right side
+        // - validator proof: just provide an empty proof
+        // - state proof: correct proof
+        // 
+        require(pubkeyProof.length >= VALIDATOR_TREE_MIN_DEPTH, "pubkeyProof short");
+        require(pubkeyProof.length == withdrawableEpochProof, "validator proofs length");
+        require(validatorProof.length >= VALIDATORS_TREE_MIN_DEPTH, "validatorProof short");
+        require(stateProof.length >= STATE_TREE_MIN_DEPTH, "stateProof length");
 
         bytes32 validatorRootPk = computeMerkleBranch(pubkeyHash, pubkeyProof, VALIDATOR_PUBKEY_INDEX);
         // TODO: I think this is wrong, beacon chain is little endian
