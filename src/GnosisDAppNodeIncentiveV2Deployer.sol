@@ -29,17 +29,26 @@ contract GnosisDAppNodeIncentiveV2Deployer {
     function deploy(
         address[] calldata funder_benefactor,
         uint256 expiry,
+        uint256 withdrawThreshold,
         bytes32[] calldata pubkeyHashes
-    ) public returns(SafeProxy) {
-        uint256 threshold = 2;
+    )
+        public
+        returns (SafeProxy)
+    {
         // Passing a `address[] calldata` here because contructing a memory array here causes the init
         // call to revert without an explicit reason.
         address funder = funder_benefactor[0];
         address benefactor = funder_benefactor[1];
+        uint256 threshold = 2; // 2/2 multi-sig
 
         bytes memory setupModulesData = abi.encodeWithSignature(
             "setupModule(address,uint256,uint256,address,address,bytes32[])",
-            safeModule, expiry, threshold, benefactor, funder, pubkeyHashes
+            safeModule,
+            expiry,
+            withdrawThreshold,
+            benefactor,
+            funder,
+            pubkeyHashes
         );
 
         SafeProxy proxy = proxyFactory.createProxyWithNonce(

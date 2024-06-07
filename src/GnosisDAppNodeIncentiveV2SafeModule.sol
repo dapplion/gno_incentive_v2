@@ -35,7 +35,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         // Expiry timestamp
         uint256 expiry;
         // Balance threshold
-        uint256 threshold;
+        uint256 withdrawThreshold;
         // Benefactor address
         address benefactor;
         // Funder address
@@ -46,35 +46,31 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
 
     mapping(Safe => UserInfo) public userInfos;
 
-    constructor(
-        uint256 _genesisTime,
-        uint256 _secondsPerEpoch,
-        address _withdrawalToken,
-        address _eip4788Contract
-    ) {
+    constructor(uint256 _genesisTime, uint256 _secondsPerEpoch, address _withdrawalToken, address _eip4788Contract) {
         genesisTime = _genesisTime;
         secondsPerEpoch = _secondsPerEpoch;
         withdrawalToken = IERC20(_withdrawalToken);
         eip4788Contract = _eip4788Contract;
     }
 
+    function getUserInfo(Safe _safe) public view returns (uint256, uint256, address, address, bytes32[] memory) {
+        UserInfo storage userInfo = userInfos[_safe];
+        require(userInfo.expiry > 0, "not registered");
+        return (userInfo.expiry, userInfo.withdrawThreshold, userInfo.benefactor, userInfo.funder, userInfo.pubkeyHashes);
+    }
+
     function registerSafe(
         uint256 expiry,
-        uint256 threshold,
+        uint256 withdrawThreshold,
         address benefactor,
         address funder,
         bytes32[] calldata pubkeyHashes
     ) public {
         Safe sender = Safe(payable(msg.sender));
+        require(withdrawThreshold >= 1 ether, "withdrawThreshold too low");
         require(userInfos[sender].expiry == 0, "already registered");
         require(expiry > block.timestamp, "must expire in the future");
-        userInfos[sender] = UserInfo(
-            expiry,
-            threshold,
-            benefactor,
-            funder,
-            pubkeyHashes
-        );
+        userInfos[sender] = UserInfo(expiry, withdrawThreshold, benefactor, funder, pubkeyHashes);
     }
 
     /**
@@ -86,10 +82,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         require(info.expiry < block.timestamp, "not expired");
-        bytes memory data = abi.encodeWithSignature(
-            "removeOwner(address,address,uint256)",
-            info.funder, info.funder, 1
-        );
+        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.funder, 1);
         require(
             from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
             "error safe exec removeOwner"
@@ -111,12 +104,11 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         uint256 balance = withdrawalToken.balanceOf(address(from));
 
         address transfer_to;
+        // If past expiry, always transfer to benefactor
         if (
-            info
-                // If past expiry, always transfer to benefactor
-                .expiry >= block.timestamp
+            block.timestamp >= info.expiry
             // If under threshold, always transfer to benefactor
-            || balance < info.threshold
+            || balance < info.withdrawThreshold
             // else proof that at least one validator is exited, or all are not exited
             || !isSomeValidatorExited(info.pubkeyHashes, exitProofs)
         ) {
@@ -125,10 +117,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
             transfer_to = info.funder;
         }
 
-        bytes memory data = abi.encodeWithSignature(
-            "transfer(address,uint256)",
-            transfer_to, balance
-        );
+        bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", transfer_to, balance);
         require(
             Safe(from).execTransactionFromModule(address(withdrawalToken), 0, data, Enum.Operation.Call),
             "error safe exec transfer"
@@ -144,6 +133,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         returns (bool)
     {
         bytes32 expectedStateRoot = getEip4788Root();
+        require(pubkeyHashes.length == exitProofs.length, "exitProofs length");
 
         for (uint256 i = 0; i < pubkeyHashes.length; i++) {
             uint64 withdrawableEpoch = assertValidExitProof(pubkeyHashes[i], exitProofs[i], expectedStateRoot);
@@ -180,7 +170,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
 
         // Require proofs to have minimal at the current fork. Otherwise an attacker can exploit the proofs
         // by providing an empty proof and manipulating the others to read unexpected data.
-        // 
+        //
         // h/t @etan for the attack
         // - pubkey proof: start with correct one but extend it all the way to htr(validators) by extending
         //   with right side hashes
@@ -188,9 +178,9 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         //   also extend the proof to htr(validators) only adding hashes on right side
         // - validator proof: just provide an empty proof
         // - state proof: correct proof
-        // 
+        //
         require(pubkeyProof.length >= VALIDATOR_TREE_MIN_DEPTH, "pubkeyProof short");
-        require(pubkeyProof.length == withdrawableEpochProof, "validator proofs length");
+        require(pubkeyProof.length == withdrawableEpochProof.length, "validator proofs length");
         require(validatorProof.length >= VALIDATORS_TREE_MIN_DEPTH, "validatorProof short");
         require(stateProof.length >= STATE_TREE_MIN_DEPTH, "stateProof length");
 
