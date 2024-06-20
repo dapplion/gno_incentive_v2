@@ -24,11 +24,11 @@ contract GnosisDAppNodeIncentiveV2SafeModuleSetup {
         uint256 withdrawThreshold,
         address benefactor,
         address funder,
-        bytes32[] calldata pubkeyHashes
+        bool autoClaimEnabled
     ) external {
         Safe(payable(address(this))).enableModule(safeModule);
         GnosisDAppNodeIncentiveV2SafeModule(safeModule).registerSafe(
-            expiry, withdrawThreshold, benefactor, funder, pubkeyHashes
+            expiry, withdrawThreshold, benefactor, funder, autoClaimEnabled
         );
     }
 }

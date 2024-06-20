@@ -14,23 +14,17 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     GnosisDAppNodeIncentiveV2Deployer public deployer;
     GnosisDAppNodeIncentiveV2SafeModule public safeModule;
     UnsafeERC20 public withdrawalToken;
-    EIP4788Mock public eip4788Contract;
     uint256 withdrawThreshold = 3 ether;
     uint256 expiryDuration = 365 days;
     address funder;
     address benefactor;
 
     function setUp() public {
-        uint256 genesisTime = 160000000;
-        uint256 secondsPerEpoch = 5 * 16;
-
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
-        eip4788Contract = new EIP4788Mock();
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
-        safeModule =
-            new GnosisDAppNodeIncentiveV2SafeModule(genesisTime, secondsPerEpoch, address(withdrawalToken), address(eip4788Contract));
+        safeModule = new GnosisDAppNodeIncentiveV2SafeModule(address(withdrawalToken));
         GnosisDAppNodeIncentiveV2SafeModuleSetup safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
         deployer = new GnosisDAppNodeIncentiveV2Deployer(proxy, safeImplementation, safeModule, safeModuleSetup);
 
@@ -53,7 +47,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         SafeProxy proxy = deployer.deploy(funder_benefactor, expiry, withdrawThreshold, pubkeyHashes);
         Safe safe = Safe(payable(address(proxy)));
         // Sanity check
-        (,, address retrievedBenefactor, address retrievedFunder,) = safeModule.getUserInfo(safe);
+        (,, address retrievedBenefactor, address retrievedFunder,,) = safeModule.getUserInfo(safe);
         assertEq(retrievedBenefactor, benefactor, "Benefactor address does not match");
         assertEq(retrievedFunder, funder, "Funder address does not match");
         assertFalse(isExpired(safe), "should not be expired");
@@ -66,13 +60,13 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     }
 
     function isExpired(Safe safe) public returns (bool) {
-        (uint256 expiry,,,,) = safeModule.getUserInfo(safe);
+        (uint256 expiry,,,,,) = safeModule.getUserInfo(safe);
         return block.timestamp >= expiry;
     }
 
     function mintAndWithdraw(Safe safe, uint256 amount) public {
         withdrawalToken.mint(address(safe), amount);
-        safeModule.withdrawBalance(safe, new bytes[](0));
+        safeModule.withdrawBalance(safe, false);
     }
 
     // Tests that if the contract has < threshold a withdraw call without proof succeeds and the balance
@@ -94,7 +88,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         uint256 amount = withdrawThreshold + 1;
         withdrawalToken.mint(address(safe), amount);
         vm.expectRevert(bytes("exitProofs length"));
-        safeModule.withdrawBalance(safe, new bytes[](0));
+        safeModule.withdrawBalance(safe, false);
     }
 
     // Tests that if the contract has < threshold a withdraw call without proof succeeds and the balance
