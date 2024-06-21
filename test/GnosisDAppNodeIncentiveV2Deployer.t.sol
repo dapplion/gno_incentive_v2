@@ -11,13 +11,17 @@ import {UnsafeERC20} from "./mocks/ERC20.sol";
 import {EIP4788Mock} from "./mocks/EIP4788Mock.sol";
 
 contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
-    GnosisDAppNodeIncentiveV2Deployer public deployer;
-    GnosisDAppNodeIncentiveV2SafeModule public safeModule;
-    UnsafeERC20 public withdrawalToken;
-    uint256 withdrawThreshold = 3 ether;
+    GnosisDAppNodeIncentiveV2Deployer deployer;
+    GnosisDAppNodeIncentiveV2SafeModule safeModule;
+    UnsafeERC20 withdrawalToken;
+    uint256 withdrawThreshold = 0.75 ether;
+    uint256 amountOverThreshold = 1 ether;
+    uint256 amountUnderThreshold = 0.1 ether;
     uint256 expiryDuration = 365 days;
     address funder;
     address benefactor;
+    address anyone;
+    Safe safe;
 
     function setUp() public {
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
@@ -31,6 +35,10 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         // Re-usable addresses
         funder = vm.addr(1);
         benefactor = vm.addr(2);
+        anyone = vm.addr(3);
+
+        // Deploy single safe
+        safe = deploySafeProxy();
     }
 
     function deploySafeProxy() internal returns (Safe) {
@@ -39,12 +47,9 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         funder_benefactor[1] = benefactor;
 
         uint256 expiry = block.timestamp + expiryDuration;
-        bytes32[] memory pubkeyHashes = new bytes32[](3);
-        pubkeyHashes[0] = bytes32(uint256(0xaa));
-        pubkeyHashes[1] = bytes32(uint256(0xbb));
-        pubkeyHashes[2] = bytes32(uint256(0xcc));
+        bool autoClaimEnabled = false;
 
-        SafeProxy proxy = deployer.deploy(funder_benefactor, expiry, withdrawThreshold, pubkeyHashes);
+        SafeProxy proxy = deployer.deploy(funder_benefactor, expiry, withdrawThreshold, autoClaimEnabled);
         Safe safe = Safe(payable(address(proxy)));
         // Sanity check
         (,, address retrievedBenefactor, address retrievedFunder,,) = safeModule.getUserInfo(safe);
@@ -53,10 +58,6 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         assertFalse(isExpired(safe), "should not be expired");
         
         return safe;
-    }
-
-    function test_deploy() public {
-        Safe safe = deploySafeProxy();
     }
 
     function isExpired(Safe safe) public returns (bool) {
@@ -69,75 +70,128 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         safeModule.withdrawBalance(safe, false);
     }
 
-    // Tests that if the contract has < threshold a withdraw call without proof succeeds and the balance
-    // goes to the benefactor. Note that anyone can call `withdrawBalance` so we don't need to assert
-    // access control here, the funder will never gets funds.
-    function test_benefactor_can_withdraw_under_threshold() public {
-        Safe safe = deploySafeProxy();
-
-        assertEq(withdrawalToken.balanceOf(benefactor), 0, "not initial zero balance");
-        uint256 amount = withdrawThreshold - 1;
-        mintAndWithdraw(safe, amount);
-        assertEq(withdrawalToken.balanceOf(benefactor), amount, "benefactor did not got funds");
+    function enableAutoClaim() private {
+        vm.prank(benefactor);
+        safeModule.setAutoClaim(safe, true);
     }
 
-    // Tests that if the balance is >= threshold any call to withdrawBalance reverts if it has no proofs
-    function test_noone_can_withdraw_over_threshold_with_empty_proofs() public {
-        Safe safe = deploySafeProxy();
+    function assertBalance(address to, uint256 amount) private {
+        assertEq(withdrawalToken.balanceOf(to), amount, "not expected balance");
+    }
 
-        uint256 amount = withdrawThreshold + 1;
-        withdrawalToken.mint(address(safe), amount);
-        vm.expectRevert(bytes("exitProofs length"));
+    function afterExpiry() private {
+        vm.warp(block.timestamp + expiryDuration + 1);
+    }
+
+    // - with auto claim false, benefactor can withdraw under threshold
+    function test_before_expiry_autoclaim_false_benefactor_under_threshold() public {
+        withdrawalToken.mint(address(safe), amountUnderThreshold);
+        vm.prank(benefactor);
+        safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, amountUnderThreshold);
+    }
+
+    // - with auto claim false, anyone reverts
+    function test_before_expiry_autoclaim_false_anyone_reverts() public {
+        withdrawalToken.mint(address(safe), amountUnderThreshold);
+        vm.prank(anyone);
+        vm.expectRevert("only benefactor");
         safeModule.withdrawBalance(safe, false);
     }
 
-    // Tests that if the contract has < threshold a withdraw call without proof succeeds and the balance
-    // goes to the benefactor. Note that anyone can call `withdrawBalance` so we don't need to assert
-    // access control here, the funder will never gets funds.
-    function test_benefactor_can_withdraw_after_expiry_under_threshold() public {
-        Safe safe = deploySafeProxy();
-        vm.warp(block.timestamp + expiryDuration + 1);
-        assertTrue(isExpired(safe), "should be expired");
-
-        uint256 amount = withdrawThreshold - 1;
-        mintAndWithdraw(safe, amount);
+    // - with auto claim true, anyone can trigger withdraw under threshold
+    function test_before_expiry_autoclaim_true_anyone_under_threshold() public {
+        enableAutoClaim();
+        withdrawalToken.mint(address(safe), amountUnderThreshold);
+        vm.prank(anyone);
+        safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, amountUnderThreshold);
     }
 
-    function test_benefactor_can_withdraw_after_expiry_over_threshold() public {
-        Safe safe = deploySafeProxy();
-        vm.warp(block.timestamp + expiryDuration + 1);
-        assertTrue(isExpired(safe), "should be expired");
-
-        uint256 amount = withdrawThreshold + 1;
-        mintAndWithdraw(safe, amount);
+    // - before expiry benefactor can not withdraw over threshold
+    function test_before_expiry_autoclaim_false_benefactor_over_threshold_revert() public {
+        withdrawalToken.mint(address(safe), amountOverThreshold);
+        vm.prank(benefactor);
+        vm.expectRevert("only funder");
+        safeModule.withdrawBalance(safe, false);
     }
 
-    // Assert safe 2/2 logic. We trust on Safe's implementation but this tests ensure that the withdraw
-    // credentials account can't submit consolidation messages without the approval of both funder and
-    // benefactor
-    function test_benefactor_can_not_execute_transactions() public {
+    // - after expiry auto claim false benefactor can withdraw above threoshold
+    function test_after_expiry_autoclaim_false_benefactor_above_threshold() public {
+        afterExpiry();
+        withdrawalToken.mint(address(safe), amountOverThreshold);
+        vm.prank(benefactor);
+        safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, amountOverThreshold);
+    }
+
+    // - after expiry auto claim true anyone can trigger withdraw above threoshold
+    function test_after_expiry_autoclaim_true_anyone_above_threshold() public {
+        afterExpiry();
+        enableAutoClaim();
+        withdrawalToken.mint(address(safe), amountOverThreshold);
+        vm.prank(anyone);
+        safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, amountOverThreshold);
+    }
+
+    // - before expiry funder can trigger withdraw to benefactor above threshold
+    function test_before_expiry_funder_above_threshold_to_benefactor() public {
+        withdrawalToken.mint(address(safe), amountOverThreshold);
+        vm.prank(funder);
+        safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, amountOverThreshold);
+    }
+
+    // - before expiry funder can trigger withdraw to funder above threshold
+    function test_before_expiry_funder_above_threshold_to_self() public {
+        withdrawalToken.mint(address(safe), amountOverThreshold);
+        vm.prank(funder);
+        safeModule.withdrawBalance(safe, true);
+        assertBalance(funder, amountOverThreshold);
+    }
+
+    // - funder can terminate before expiry.
+    //   - benefactor is no longer owner
+    //   - benefactor can not withdraw any amount
+    function test_terminate_before_expiry_funder() public {
+        vm.prank(funder);
+        safeModule.terminate(safe);
+        assertBalance(funder, amountOverThreshold);
+        // Attempt withdrawals
+        withdrawalToken.mint(address(safe), amountUnderThreshold);
+        vm.prank(benefactor);
+        safeModule.withdrawBalance(safe, false);
+    }
+
+    // - funder can not terminate after expiry
+    function test_terminate_after_expiry_funder_revert() public {
+        afterExpiry();
+        vm.prank(funder);
+        vm.expectRevert("already expired");
+        safeModule.terminate(safe);
+    }
+
+    // - anyone can remove funder after expiry
+    function test_remove_funder_after_expiry() public {
+        afterExpiry();
+        vm.prank(anyone);
+        safeModule.removeFunderOwner(safe);
+    }
+
+    // - anyone can not remove funder before expiry
+    function test_remove_funder_before_expiry_revert() public {
+        vm.prank(anyone);
+        vm.expectRevert("not expired");
+        safeModule.removeFunderOwner(safe);
+    }
+
+    // - funder and benefactor can 2/2 send a safe transaction
+    function test_send_2of2_safe_transaction() public {
         // TODO
     }
 
-    function test_funder_can_not_execute_transactions() public {
-        // TODO
-    }
-
-    function test_funder_and_benefactor_can_execute_transactions() public {
-        // TODO
-    }
-
-    // Test that exit proof is correct
-    function test_benefactor_can_withdraw_exit_proof_not_exited() public {
-        // TODO
-    }
-
-    function test_funder_can_withdraw_exit_proof_exited() public {
-        // TODO
-    }
-
-    // Test various invalid proof cases
-    function test_invalid_exit_proof() public {
+    function test_send_1of2_safe_transaction_revert() public {
         // TODO
     }
 }

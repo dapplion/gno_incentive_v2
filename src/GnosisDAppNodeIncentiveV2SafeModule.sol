@@ -47,7 +47,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         bool autoClaimEnabled
     ) public {
         Safe sender = Safe(payable(msg.sender));
-        require(withdrawThreshold >= 1 ether, "withdrawThreshold too low");
+        require(withdrawThreshold >= 0.1 ether, "withdrawThreshold too low");
         require(userInfos[sender].expiry == 0, "already registered");
         require(expiry > block.timestamp, "must expire in the future");
         userInfos[sender] = UserInfo(expiry, withdrawThreshold, benefactor, funder, autoClaimEnabled, false);
@@ -74,7 +74,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         require(!info.terminated, "terminated");
-        require(info.expiry >= block.timestamp, "not expired");
+        require(block.timestamp >= info.expiry, "not expired");
         bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.funder, 1);
         require(
             from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
@@ -90,7 +90,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
     function terminate(Safe from) external {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
-        require(info.expiry < block.timestamp, "already expired");
+        require(block.timestamp < info.expiry, "already expired");
         require(msg.sender == info.funder, "only funder");
         // No need to check for already terminated, funder has no reason to call this function multiple times and will have
         // no effect as benefactor is already removed

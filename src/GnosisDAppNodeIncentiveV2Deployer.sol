@@ -30,7 +30,7 @@ contract GnosisDAppNodeIncentiveV2Deployer {
         address[] calldata funder_benefactor,
         uint256 expiry,
         uint256 withdrawThreshold,
-        bytes32[] calldata pubkeyHashes
+        bool autoClaimEnabled
     )
         public
         returns (SafeProxy)
@@ -42,13 +42,13 @@ contract GnosisDAppNodeIncentiveV2Deployer {
         uint256 threshold = 2; // 2/2 multi-sig
 
         bytes memory setupModulesData = abi.encodeWithSignature(
-            "setupModule(address,uint256,uint256,address,address,bytes32[])",
+            "setupModule(address,uint256,uint256,address,address,bool)",
             safeModule,
             expiry,
             withdrawThreshold,
             benefactor,
             funder,
-            pubkeyHashes
+            autoClaimEnabled
         );
 
         SafeProxy proxy = proxyFactory.createProxyWithNonce(
