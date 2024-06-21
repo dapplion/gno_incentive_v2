@@ -9,33 +9,39 @@ import {GnosisDAppNodeIncentiveV2SafeModuleSetup} from "../src/GnosisDAppNodeInc
 import {GnosisDAppNodeIncentiveV2SafeModule} from "../src/GnosisDAppNodeIncentiveV2SafeModule.sol";
 import {UnsafeERC20} from "./mocks/ERC20.sol";
 import {EIP4788Mock} from "./mocks/EIP4788Mock.sol";
+import {ISBCDepositContract} from "../src/ISBCDepositContract.sol";
 
 contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     GnosisDAppNodeIncentiveV2Deployer deployer;
     GnosisDAppNodeIncentiveV2SafeModule safeModule;
     UnsafeERC20 withdrawalToken;
+    ISBCDepositContract depositContract;
     uint256 withdrawThreshold = 0.75 ether;
     uint256 amountOverThreshold = 1 ether;
     uint256 amountUnderThreshold = 0.1 ether;
     uint256 expiryDuration = 365 days;
+    uint16 maxPendingDeposits = 4;
     address funder;
     address benefactor;
     address anyone;
     Safe safe;
 
     function setUp() public {
+        // Re-usable addresses
+        funder = vm.addr(1);
+        benefactor = vm.addr(2);
+        anyone = vm.addr(3);
+
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
+        depositContract = ISBCDepositContract(address(new UnsafeERC20("GNO", "GNO")));
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
         safeModule = new GnosisDAppNodeIncentiveV2SafeModule(address(withdrawalToken));
         GnosisDAppNodeIncentiveV2SafeModuleSetup safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
-        deployer = new GnosisDAppNodeIncentiveV2Deployer(proxy, safeImplementation, safeModule, safeModuleSetup);
-
-        // Re-usable addresses
-        funder = vm.addr(1);
-        benefactor = vm.addr(2);
-        anyone = vm.addr(3);
+        deployer = new GnosisDAppNodeIncentiveV2Deployer(
+            proxy, safeImplementation, safeModule, safeModuleSetup, depositContract, funder
+        );
 
         // Deploy single safe
         safe = deploySafeProxy();
@@ -49,7 +55,9 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         uint256 expiry = block.timestamp + expiryDuration;
         bool autoClaimEnabled = false;
 
-        SafeProxy proxy = deployer.deploy(funder_benefactor, expiry, withdrawThreshold, autoClaimEnabled);
+        SafeProxy proxy = deployer.assignSafe(
+            benefactor, expiry, withdrawThreshold, maxPendingDeposits, autoClaimEnabled
+        );
         Safe safe = Safe(payable(address(proxy)));
         
         return safe;
