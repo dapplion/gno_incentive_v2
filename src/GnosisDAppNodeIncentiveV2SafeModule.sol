@@ -75,9 +75,9 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         require(info.expiry != 0, "not registered");
         require(!info.terminated, "terminated");
         require(block.timestamp >= info.expiry, "not expired");
-        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.funder, 1);
+        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", address(1), info.funder, 1);
         require(
-            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
+            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call),
             "error safe exec removeOwner"
         );
     }
@@ -99,9 +99,9 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         info.terminated = true;
 
         // Remove benefactor
-        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.benefactor, info.benefactor, 1);
+        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.benefactor, 1);
         require(
-            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.DelegateCall),
+            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call),
             "error safe exec removeOwner"
         );
     }

@@ -51,11 +51,6 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         SafeProxy proxy = deployer.deploy(funder_benefactor, expiry, withdrawThreshold, autoClaimEnabled);
         Safe safe = Safe(payable(address(proxy)));
-        // Sanity check
-        (,, address retrievedBenefactor, address retrievedFunder,,) = safeModule.getUserInfo(safe);
-        assertEq(retrievedBenefactor, benefactor, "Benefactor address does not match");
-        assertEq(retrievedFunder, funder, "Funder address does not match");
-        assertFalse(isExpired(safe), "should not be expired");
         
         return safe;
     }
@@ -81,6 +76,17 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
     function afterExpiry() private {
         vm.warp(block.timestamp + expiryDuration + 1);
+    }
+
+    function test_sanity_checks() public {
+        // Sanity check
+        (,, address retrievedBenefactor, address retrievedFunder,,) = safeModule.getUserInfo(safe);
+        assertEq(retrievedBenefactor, benefactor, "Benefactor address does not match");
+        assertEq(retrievedFunder, funder, "Funder address does not match");
+        assertFalse(isExpired(safe), "should not be expired");
+        // Both are owners
+        assertTrue(safe.isOwner(benefactor));
+        assertTrue(safe.isOwner(funder));
     }
 
     // - with auto claim false, benefactor can withdraw under threshold
@@ -157,11 +163,15 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     function test_terminate_before_expiry_funder() public {
         vm.prank(funder);
         safeModule.terminate(safe);
-        assertBalance(funder, amountOverThreshold);
         // Attempt withdrawals
         withdrawalToken.mint(address(safe), amountUnderThreshold);
         vm.prank(benefactor);
         safeModule.withdrawBalance(safe, false);
+        assertBalance(benefactor, 0);
+        assertBalance(funder, amountUnderThreshold);
+        // Assert new owners
+        assertFalse(safe.isOwner(benefactor));
+        assertTrue(safe.isOwner(funder));
     }
 
     // - funder can not terminate after expiry
@@ -177,6 +187,9 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         afterExpiry();
         vm.prank(anyone);
         safeModule.removeFunderOwner(safe);
+        // Assert new owners
+        assertTrue(safe.isOwner(benefactor));
+        assertFalse(safe.isOwner(funder));
     }
 
     // - anyone can not remove funder before expiry
@@ -184,14 +197,5 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         vm.prank(anyone);
         vm.expectRevert("not expired");
         safeModule.removeFunderOwner(safe);
-    }
-
-    // - funder and benefactor can 2/2 send a safe transaction
-    function test_send_2of2_safe_transaction() public {
-        // TODO
-    }
-
-    function test_send_1of2_safe_transaction_revert() public {
-        // TODO
     }
 }
