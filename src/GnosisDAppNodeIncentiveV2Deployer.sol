@@ -4,23 +4,35 @@ pragma solidity ^0.8.13;
 import "safe-smart-account/contracts/Safe.sol";
 import "safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
 import "safe-smart-account/contracts/proxies/SafeProxy.sol";
-import "./ISBCDepositContract.sol";
 import "./GnosisDAppNodeIncentiveV2SafeModuleSetup.sol";
 import "./GnosisDAppNodeIncentiveV2SafeModule.sol";
-import "./Ownable.sol";
+import "./utils/ISBCDepositContract.sol";
+import "./utils/Ownable.sol";
+import "./utils/IERC20.sol";
 
 contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
-    struct User {
-        Safe safe;
-        uint16 maxPendingDeposits;
-        bool depositsSet;
+    enum Status {
+        Pending,
+        Submitted,
+        Executed
     }
 
-    struct PendingDeposits {
-        bytes pubkeys;
-        bytes signatures;
-        bytes32[] deposit_data_roots;
+    struct PendingDeposit {
+        bytes pubkey;
+        bytes signature;
+        bytes32 deposit_data_root;
     }
+
+    struct User {
+        Safe safe;
+        Status status;
+        uint16 expectedDepositCount;
+        uint256 totalStakeAmount;
+        PendingDeposit[] pendingDeposits;
+    }
+
+    /// @notice User has submitted deposit data
+    event SubmitPendingDeposits(address benefactor);
 
     uint256 nonce = 0;
     SafeProxyFactory public proxyFactory;
@@ -30,7 +42,6 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
     ISBCDepositContract public depositContract;
 
     mapping(address => User) public users;
-    mapping(address => PendingDeposits) public pendingDeposits;
 
     constructor(
         SafeProxyFactory _proxyFactory,
@@ -56,7 +67,8 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         address benefactor,
         uint256 expiry,
         uint256 withdrawThreshold,
-        uint16 maxPendingDeposits,
+        uint16 expectedDepositCount,
+        uint256 totalStakeAmount,
         bool autoClaimEnabled
     )
         public
@@ -64,7 +76,8 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         returns (SafeProxy)
     {
         // Only allow a single safe per benefactor address for simplicity
-        require(address(users[benefactor].safe) == address(0), "already registered");
+        User storage user = users[benefactor];
+        require(address(user.safe) == address(0), "already registered");
 
         address funder = owner();
         address[] memory safeOwners = new address[](2);
@@ -108,7 +121,11 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         nonce += 1;
 
         // Register safe to allow submitting pending deposits
-        users[benefactor] = User(Safe(payable(address(proxy))), maxPendingDeposits, false);
+        user.safe = Safe(payable(address(proxy)));
+        user.status = Status.Pending;
+        user.expectedDepositCount = expectedDepositCount;
+        user.totalStakeAmount = totalStakeAmount;
+        delete user.pendingDeposits;
 
         return proxy;
     }
@@ -127,39 +144,65 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         // Only allow a registered user to submit deposits or owner as fallback
         require(address(user.safe) != address(0) || msg.sender == owner(), "not allowed"); 
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
-        require(pubkeys.length == signatures.length, "not same length");
-        require(pubkeys.length == deposit_data_roots.length, "not same length");
-        require(pubkeys.length > 0, "empty deposits");
-        require(pubkeys.length <= user.maxPendingDeposits, "too many deposits");
+        uint256 count = deposit_data_roots.length;
+        require(count == pubkeys.length / 48, "not same length");
+        require(count == signatures.length / 96, "not same length");
+        require(count == user.expectedDepositCount, "not expected deposit count");
+        require(pubkeys.length % 48 == 0, "Invalid pubkeys length");
+        require(signatures.length % 96 == 0, "Invalid signatures length");
         // Only allow to set deposits once
-        require(!user.depositsSet, "already set");
-        user.depositsSet = true;
+        require(user.status == Status.Pending, "already submitted");
+        user.status = Status.Submitted;
 
-        pendingDeposits = PendingDeposits(pubkeys, signatures, deposit_data_roots);
+        for (uint256 i = 0; i < count; ++i) {
+            bytes memory pubkey = bytes(pubkeys[i * 48:(i + 1) * 48]);
+            bytes memory signature = bytes(signatures[i * 96:(i + 1) * 96]);
+
+            PendingDeposit memory deposit = PendingDeposit({
+                pubkey: pubkey,
+                signature: signature,
+                deposit_data_root: deposit_data_roots[i]
+            });
+            user.pendingDeposits.push(deposit);
+        }
+
+        emit SubmitPendingDeposits(msg.sender);
     }
 
     /**
      * @notice After the owner has verified the deposit conditions it can execute the deposits.
-     * The `amountPerDeposit` is left as a variable to allow:
-     * - Two step deposit to reduce front-run risk: Do first deposit of 1/32 GNO, second deposit of 31/32 GNO
-     * - To be forwards compatible with MaxEB, and allow deposits of consolidated validators.
      */
-    function executePendingDeposits(
-        address benefactor,
-        uint256 amountPerDeposit
-    ) public onlyOwner {
+    function executePendingDeposits(address benefactor) public onlyOwner {
         User storage user = users[benefactor]; 
-        require(user.depositsSet, "not set");
+        require(user.status == Status.Submitted, "not submitted status");
+        user.status = Status.Executed;
 
-        PendingDeposits storage depositData = pendingDeposits[benefactor];
-        bytes memory withdrawal_credentials = abi.encodePacked(address(user.safe));
+        bytes memory withdrawal_credentials = abi.encodePacked(uint8(1), bytes3(0), bytes8(0), address(user.safe));
 
-        depositContract.batchDeposit(
-            depositData.pubkeys,
-            withdrawal_credentials,
-            depositData.signatures,
-            depositData.deposit_data_roots
-        );
+        // Allow deposit contract to spend withdrawal token once
+        IERC20 stake_token = IERC20(depositContract.stake_token());
+        if (stake_token.allowance(address(this), address(depositContract)) < type(uint256).max) {
+            stake_token.approve(address(depositContract), type(uint256).max);
+        }
+
+        // count is bounded by funder set value `maxPendingDeposits`. Funder should validate that the count of deposits
+        // is correct before calling this function.
+        uint count = user.expectedDepositCount;
+        uint stakeAmountPerDeposit = user.totalStakeAmount / count;
+
+        // Implement a manual batchDeposit for have custom stake amounts
+        // No need to validate bytes length, as they are checked in submitPendingDeposits
+        for (uint256 i = 0; i < count; ++i) {
+            // No required to limit stakeAmountPerDeposit here. We want flexibility to support MaxEB. If funder
+            // makes an operational error and over-deposits, it can claim the funds back before expiry date.
+            depositContract.deposit(
+                user.pendingDeposits[i].pubkey,
+                withdrawal_credentials,
+                user.pendingDeposits[i].signature,
+                user.pendingDeposits[i].deposit_data_root,
+                stakeAmountPerDeposit
+            );
+        }
     }
 
     /**
@@ -168,7 +211,9 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
      */
     function clearPendingDeposits(address benefactor) public onlyOwner {
         User storage user = users[benefactor]; 
-        require(user.depositsSet, "not set");
-        user.depositsSet = false;
+        require(address(user.safe) != address(0), "not registered");
+        require(user.status != Status.Pending, "already pending");
+        user.status = Status.Pending;
+        delete user.pendingDeposits;
     }
 }

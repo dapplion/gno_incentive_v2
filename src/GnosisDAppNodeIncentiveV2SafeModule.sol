@@ -3,10 +3,7 @@ pragma solidity ^0.8.13;
 
 import "safe-smart-account/contracts/Safe.sol";
 import "safe-smart-account/contracts/common/Enum.sol";
-
-interface IERC20 {
-    function balanceOf(address account) external view returns (uint256);
-}
+import "./utils/IERC20.sol";
 
 contract GnosisDAppNodeIncentiveV2SafeModule {
     // Address of the token to claim withdrawals from

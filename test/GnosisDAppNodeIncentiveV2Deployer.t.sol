@@ -9,7 +9,8 @@ import {GnosisDAppNodeIncentiveV2SafeModuleSetup} from "../src/GnosisDAppNodeInc
 import {GnosisDAppNodeIncentiveV2SafeModule} from "../src/GnosisDAppNodeIncentiveV2SafeModule.sol";
 import {UnsafeERC20} from "./mocks/ERC20.sol";
 import {EIP4788Mock} from "./mocks/EIP4788Mock.sol";
-import {ISBCDepositContract} from "../src/ISBCDepositContract.sol";
+import {ISBCDepositContract} from "../src/utils/ISBCDepositContract.sol";
+import {SBCDepositContract} from "./mocks/SBCDepositContract.sol";
 
 contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     GnosisDAppNodeIncentiveV2Deployer deployer;
@@ -20,7 +21,6 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     uint256 amountOverThreshold = 1 ether;
     uint256 amountUnderThreshold = 0.1 ether;
     uint256 expiryDuration = 365 days;
-    uint16 maxPendingDeposits = 4;
     address funder;
     address benefactor;
     address anyone;
@@ -33,7 +33,9 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         anyone = vm.addr(3);
 
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
-        depositContract = ISBCDepositContract(address(new UnsafeERC20("GNO", "GNO")));
+        depositContract = ISBCDepositContract(address(
+            new SBCDepositContract(address(withdrawalToken))
+        ));
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
@@ -44,46 +46,30 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         );
 
         // Deploy single safe
-        safe = deploySafeProxy();
+        safe = deploySafeProxy(4);
     }
 
-    function deploySafeProxy() internal returns (Safe) {
+    function deploySafeProxy(uint16 expectedDepositCount) internal returns (Safe) {
         address[] memory funder_benefactor = new address[](2);
         funder_benefactor[0] = funder;
         funder_benefactor[1] = benefactor;
 
         uint256 expiry = block.timestamp + expiryDuration;
         bool autoClaimEnabled = false;
+        uint256 toDepositValue = uint256(expectedDepositCount) * 1 ether;
 
+        vm.prank(funder);
         SafeProxy proxy = deployer.assignSafe(
-            benefactor, expiry, withdrawThreshold, maxPendingDeposits, autoClaimEnabled
+            benefactor,
+            expiry,
+            withdrawThreshold,
+            expectedDepositCount,
+            toDepositValue,
+            autoClaimEnabled
         );
         Safe safe = Safe(payable(address(proxy)));
         
         return safe;
-    }
-
-    function isExpired(Safe safe) public returns (bool) {
-        (uint256 expiry,,,,,) = safeModule.getUserInfo(safe);
-        return block.timestamp >= expiry;
-    }
-
-    function mintAndWithdraw(Safe safe, uint256 amount) public {
-        withdrawalToken.mint(address(safe), amount);
-        safeModule.withdrawBalance(safe, false);
-    }
-
-    function enableAutoClaim() private {
-        vm.prank(benefactor);
-        safeModule.setAutoClaim(safe, true);
-    }
-
-    function assertBalance(address to, uint256 amount) private {
-        assertEq(withdrawalToken.balanceOf(to), amount, "not expected balance");
-    }
-
-    function afterExpiry() private {
-        vm.warp(block.timestamp + expiryDuration + 1);
     }
 
     function test_sanity_checks() public {
@@ -205,5 +191,155 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         vm.prank(anyone);
         vm.expectRevert("not expired");
         safeModule.removeFunderOwner(safe);
+    }
+
+    // - benefactor can not execute pending deposits
+    function test_execute_deposits_benefactor_revert() public {
+        submitPendingDeposits(4);
+        vm.prank(benefactor);
+        vm.expectRevert();
+        deployer.executePendingDeposits(benefactor);
+    }
+
+    // - funder executes deposit before setting, revert
+    function test_execute_deposits_funder_before_submit_revert() public {
+        vm.prank(funder);
+        vm.expectRevert("not submitted status");
+        deployer.executePendingDeposits(benefactor);
+    }
+
+    // - funder executes deposit after submit one deposit
+    function test_execute_deposits_funder_after_submit_single() public {
+        benefactor = vm.addr(9); // change benefactor to allow a new safe
+        safe = deploySafeProxy(1); // re-deploy safe expecting single deposit
+        submitPendingDeposits(1);
+        executePendingDeposits(1, 1 ether);
+    }
+
+    // - funder executes deposit after submit multiple deposit
+    function test_execute_deposits_funder_after_submit_multiple() public {
+        submitPendingDeposits(4);
+        executePendingDeposits(4, 1 ether);
+    }
+
+    // - benefactor can resubmit deposits after reset
+    function test_resubmit_deposits_after_reset() public {
+        submitPendingDeposits(4);
+        vm.prank(funder);
+        deployer.clearPendingDeposits(benefactor);
+        submitPendingDeposits(4);
+        executePendingDeposits(4, 1 ether);
+    }
+
+    function isExpired(Safe safe) public returns (bool) {
+        (uint256 expiry,,,,,) = safeModule.getUserInfo(safe);
+        return block.timestamp >= expiry;
+    }
+
+    function mintAndWithdraw(Safe safe, uint256 amount) public {
+        withdrawalToken.mint(address(safe), amount);
+        safeModule.withdrawBalance(safe, false);
+    }
+
+    function enableAutoClaim() internal {
+        vm.prank(benefactor);
+        safeModule.setAutoClaim(safe, true);
+    }
+
+    function assertBalance(address to, uint256 amount) internal {
+        assertEq(withdrawalToken.balanceOf(to), amount, "not expected balance");
+    }
+
+    function afterExpiry() internal {
+        vm.warp(block.timestamp + expiryDuration + 1);
+    }
+
+    function executePendingDeposits(uint numDeposits, uint depositValue) internal {
+        // Fund deployer for deposits
+        withdrawalToken.mint(address(deployer), numDeposits * depositValue);
+        vm.prank(funder);
+        deployer.executePendingDeposits(benefactor);
+    }
+
+    function submitPendingDeposits(uint256 numDeposits) internal {
+        bytes memory pubkeys;
+        bytes memory signatures;
+        bytes32[] memory deposit_data_roots = new bytes32[](numDeposits);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            (bytes memory pubkey,, bytes memory signature, bytes32 deposit_data_root) = generateDepositData(address(safe), 1 ether);
+
+            pubkeys = abi.encodePacked(pubkeys, pubkey);
+            signatures = abi.encodePacked(signatures, signature);
+            deposit_data_roots[i] = deposit_data_root;
+        }
+
+        vm.prank(benefactor);
+        deployer.submitPendingDeposits(pubkeys, signatures, deposit_data_roots);
+    }
+
+    // Fill deposit data with format valid pubkey and signature (actual signature is invalid)
+    function generateDepositData(
+        address withdrawalAddress,
+        uint256 stake_amount
+    ) internal returns (
+        bytes memory pubkey,
+        bytes memory withdrawal_credentials,
+        bytes memory signature,
+        bytes32 deposit_data_root
+    ) {
+        bytes memory pubkey = hex"a42d9eb4891da533237d7bb496138bba2b24221fda3b9f39762583e75ad484bf1e618ed48a2bae997fe4ccd685794b80";
+        bytes memory signature = hex"a3b59b76906764d6326903e0284be5517e8bd12eecd2062af0abc05ce0834ec75e42401909659f8d143ac0a7ded4eb3114d0469c639df20a3362a6be9179250fc222c0f420c4d831a532672a7259c64cfd3438aa3c0337f32df6be81b834ea34";
+        bytes memory withdrawal_credentials = addressTo0x1WithdrawalCredentials(withdrawalAddress);
+        bytes32 deposit_data_root = computeDataRoot(pubkey, withdrawal_credentials, signature, stake_amount);
+        return (pubkey, withdrawal_credentials, signature, deposit_data_root);
+    }
+
+    // Copied from https://github.com/gnosischain/deposit-contract/blob/5da337d6384f743a47de7c06df2b7efe481ce190/contracts/SBCDepositContract.sol#L161
+    function computeDataRoot(
+        bytes memory pubkey,
+        bytes memory withdrawal_credentials,
+        bytes memory signature,
+        uint256 stake_amount
+    ) internal returns (bytes32) {
+        // Multiply stake amount by 32 (1 GNO for validating instead of the 32 ETH expected)
+        stake_amount = 32 * stake_amount;
+        uint256 deposit_amount = stake_amount / 1 gwei;
+        bytes memory amount = to_little_endian_64(uint64(deposit_amount));
+
+        // Compute deposit data root (`DepositData` hash tree root)
+        bytes32 pubkey_root = sha256(abi.encodePacked(pubkey, bytes16(0)));
+        bytes32[3] memory sig_parts = abi.decode(signature, (bytes32[3]));
+        bytes32 signature_root = sha256(
+            abi.encodePacked(
+                sha256(abi.encodePacked(sig_parts[0], sig_parts[1])),
+                sha256(abi.encodePacked(sig_parts[2], bytes32(0)))
+            )
+        );
+        return sha256(
+            abi.encodePacked(
+                sha256(abi.encodePacked(pubkey_root, withdrawal_credentials)),
+                sha256(abi.encodePacked(amount, bytes24(0), signature_root))
+            )
+        );
+    }
+
+    function addressTo0x1WithdrawalCredentials(address addr) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint8(1), bytes3(0), bytes8(0), address(addr));
+    }
+
+    // Copied from https://github.com/gnosischain/deposit-contract/blob/5da337d6384f743a47de7c06df2b7efe481ce190/contracts/SBCDepositContract.sol#L161
+    function to_little_endian_64(uint64 value) internal pure returns (bytes memory ret) {
+        ret = new bytes(8);
+        bytes8 bytesValue = bytes8(value);
+        // Byteswapping during copying to bytes.
+        ret[0] = bytesValue[7];
+        ret[1] = bytesValue[6];
+        ret[2] = bytesValue[5];
+        ret[3] = bytesValue[4];
+        ret[4] = bytesValue[3];
+        ret[5] = bytesValue[2];
+        ret[6] = bytesValue[1];
+        ret[7] = bytesValue[0];
     }
 }

@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.13;
 
-import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import "../../src/utils/IERC20.sol";
 
 // NOTE: Simplified version of https://github.com/gnosischain/deposit-contract/blob/5da337d6384f743a47de7c06df2b7efe481ce190/contracts/SBCDepositContract.sol
 
@@ -12,8 +12,6 @@ import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
  * For the original implementation, see the Phase 0 specification under https://github.com/ethereum/eth2.0-specs
  */
 contract SBCDepositContract {
-    using SafeERC20 for IERC20;
-
     /// @notice A processed deposit event.
     event DepositEvent(bytes pubkey, bytes withdrawal_credentials, bytes amount, bytes signature, bytes index);
 
@@ -37,7 +35,7 @@ contract SBCDepositContract {
         stake_token = IERC20(_token);
     }
 
-    function get_deposit_root() external view override returns (bytes32) {
+    function get_deposit_root() external view returns (bytes32) {
         bytes32 node;
         uint256 size = deposit_count;
         for (uint256 height = 0; height < DEPOSIT_CONTRACT_TREE_DEPTH; height++) {
@@ -51,7 +49,7 @@ contract SBCDepositContract {
         return sha256(abi.encodePacked(node, to_little_endian_64(uint64(deposit_count)), bytes24(0)));
     }
 
-    function get_deposit_count() external view override returns (bytes memory) {
+    function get_deposit_count() external view returns (bytes memory) {
         return to_little_endian_64(uint64(deposit_count));
     }
 
@@ -61,7 +59,7 @@ contract SBCDepositContract {
         bytes memory signature,
         bytes32 deposit_data_root,
         uint256 stake_amount
-    ) external override {
+    ) external {
         stake_token.transferFrom(msg.sender, address(this), stake_amount);
         _deposit(pubkey, withdrawal_credentials, signature, deposit_data_root, stake_amount);
     }
@@ -95,7 +93,7 @@ contract SBCDepositContract {
         address,
         uint256 stake_amount,
         bytes calldata data
-    ) external override returns (bool) {
+    ) external returns (bool) {
         require(msg.sender == address(stake_token), "DepositContract: not a deposit token");
         require(data.length % 176 == 32, "DepositContract: incorrect deposit data length");
         uint256 count = data.length / 176;
@@ -201,29 +199,5 @@ contract SBCDepositContract {
         ret[5] = bytesValue[2];
         ret[6] = bytesValue[1];
         ret[7] = bytesValue[0];
-    }
-
-    /*** Withdrawal part ***/
-
-    /**
-     * @dev Claim withdrawal amount for an address
-     * @param _address Address to transfer withdrawable tokens
-     */
-    function claimWithdrawal(address _address) public {
-        uint256 amount = withdrawableAmount[_address];
-        if (amount > 0) {
-            withdrawableAmount[_address] = 0;
-            stake_token.safeTransfer(_address, amount);
-        }
-    }
-
-    /**
-     * @dev Claim withdrawal amounts for an array of addresses
-     * @param _addresses Addresses to transfer withdrawable tokens
-     */
-    function claimWithdrawals(address[] calldata _addresses) external {
-        for (uint256 i = 0; i < _addresses.length; ++i) {
-            claimWithdrawal(_addresses[i]);
-        }
     }
 }
