@@ -7,3 +7,6 @@
 [submodule "lib/deposit-contract"]
 	path = lib/deposit-contract
 	url = https://github.com/gnosischain/deposit-contract
+[submodule "lib/openzeppelin-contracts"]
+	path = lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts
