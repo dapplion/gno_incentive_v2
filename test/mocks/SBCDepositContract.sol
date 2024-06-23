@@ -89,11 +89,7 @@ contract SBCDepositContract {
         }
     }
 
-    function onTokenTransfer(
-        address,
-        uint256 stake_amount,
-        bytes calldata data
-    ) external returns (bool) {
+    function onTokenTransfer(address, uint256 stake_amount, bytes calldata data) external returns (bool) {
         require(msg.sender == address(stake_token), "DepositContract: not a deposit token");
         require(data.length % 176 == 32, "DepositContract: incorrect deposit data length");
         uint256 count = data.length / 176;
@@ -138,21 +134,14 @@ contract SBCDepositContract {
 
         // Emit `DepositEvent` log
         bytes memory amount = to_little_endian_64(uint64(deposit_amount));
-        emit DepositEvent(
-            pubkey,
-            withdrawal_credentials,
-            amount,
-            signature,
-            to_little_endian_64(uint64(deposit_count))
-        );
+        emit DepositEvent(pubkey, withdrawal_credentials, amount, signature, to_little_endian_64(uint64(deposit_count)));
 
         // Compute deposit data root (`DepositData` hash tree root)
         bytes32 pubkey_root = sha256(abi.encodePacked(pubkey, bytes16(0)));
         bytes32[3] memory sig_parts = abi.decode(signature, (bytes32[3]));
         bytes32 signature_root = sha256(
             abi.encodePacked(
-                sha256(abi.encodePacked(sig_parts[0], sig_parts[1])),
-                sha256(abi.encodePacked(sig_parts[2], bytes32(0)))
+                sha256(abi.encodePacked(sig_parts[0], sig_parts[1])), sha256(abi.encodePacked(sig_parts[2], bytes32(0)))
             )
         );
         bytes32 node = sha256(

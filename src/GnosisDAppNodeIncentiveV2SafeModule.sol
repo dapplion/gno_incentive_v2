@@ -30,10 +30,11 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         withdrawalToken = IERC20(_withdrawalToken);
     }
 
-    function getUserInfo(Safe _safe) public view returns (uint256, uint256, address, address, bool, bool) {
+    function getUserInfo(Safe _safe) external view returns (uint256, uint256, address, address, bool, bool) {
         UserInfo storage info = userInfos[_safe];
         require(info.expiry > 0, "not registered");
-        return (info.expiry, info.withdrawThreshold, info.benefactor, info.funder, info.autoClaimEnabled, info.terminated);
+        return
+            (info.expiry, info.withdrawThreshold, info.benefactor, info.funder, info.autoClaimEnabled, info.terminated);
     }
 
     function registerSafe(
@@ -42,7 +43,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         address benefactor,
         address funder,
         bool autoClaimEnabled
-    ) public {
+    ) external {
         Safe sender = Safe(payable(msg.sender));
         require(withdrawThreshold >= 0.1 ether, "withdrawThreshold too low");
         require(userInfos[sender].expiry == 0, "already registered");
@@ -74,8 +75,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         require(block.timestamp >= info.expiry, "not expired");
         bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", address(1), info.funder, 1);
         require(
-            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call),
-            "error safe exec removeOwner"
+            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call), "error safe exec removeOwner"
         );
     }
 
@@ -96,10 +96,10 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         info.terminated = true;
 
         // Remove benefactor
-        bytes memory data = abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.benefactor, 1);
+        bytes memory data =
+            abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.benefactor, 1);
         require(
-            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call),
-            "error safe exec removeOwner"
+            from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call), "error safe exec removeOwner"
         );
     }
 
@@ -110,7 +110,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
      * - If the benefactor has broken the incentive program rules, set `funderOnlyTransferToSelf` to true, and
      *   consider terminating the contract
      * - If the benefactor has NOT broken the incentive program rules (i.e. someone transfered extra GNO to
-         this address for some reason, set `funderOnlyTransferToSelf` to false to resolve the dispute.
+     *      this address for some reason, set `funderOnlyTransferToSelf` to false to resolve the dispute.
      * @param from Address of Safe to withdraw funds from
      * @param funderOnlyTransferToSelf Optional bool used by funder only to resolve a balance over threshold case
      */

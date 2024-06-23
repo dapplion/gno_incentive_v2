@@ -60,11 +60,11 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         depositContract = _depositContract;
     }
 
-    function getPendingDeposit(address benefactor, uint index) external view returns (
-        bytes pubkey;
-        bytes signature;
-        bytes32 deposit_data_root;
-    ) {
+    function getPendingDeposit(address benefactor, uint256 index)
+        external
+        view
+        returns (bytes memory pubkey, bytes memory signature, bytes32 deposit_data_root)
+    {
         User storage user = users[benefactor];
         uint16 expectedDepositCount = user.expectedDepositCount;
         require(expectedDepositCount != 0, "not registered");
@@ -72,7 +72,6 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         PendingDeposit storage pendingDeposit = user.pendingDeposits[index];
         return (pendingDeposit.pubkey, pendingDeposit.signature, pendingDeposit.deposit_data_root);
     }
-
 
     /**
      * @notice Deploys a safe for a benefactor address. Does not assign any funds to user, not sends any deposit
@@ -86,11 +85,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         uint16 expectedDepositCount,
         uint256 totalStakeAmount,
         bool autoClaimEnabled
-    )
-        external
-        onlyOwner
-        returns (SafeProxy)
-    {
+    ) external onlyOwner returns (SafeProxy) {
         // Only allow a single safe per benefactor address for simplicity
         User storage user = users[benefactor];
         require(address(user.safe) == address(0), "already registered");
@@ -148,7 +143,6 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         return proxy;
     }
 
-
     /**
      * @notice User submits signed deposit data for latter execution
      */
@@ -161,8 +155,8 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
     }
 
     /**
-      * @notice Owner can submit deposit data on behalf of user
-      */
+     * @notice Owner can submit deposit data on behalf of user
+     */
     function submitPendingDepositsFor(
         address benefactor,
         bytes calldata pubkeys,
@@ -181,9 +175,9 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
     ) internal {
-        User storage user = users[msg.sender]; 
+        User storage user = users[msg.sender];
         // Only allow a registered user to submit deposits
-        require(address(user.safe) != address(0), "not registered"); 
+        require(address(user.safe) != address(0), "not registered");
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
         uint256 count = deposit_data_roots.length;
         require(count == pubkeys.length / 48, "not same length");
@@ -199,11 +193,8 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
             bytes memory pubkey = bytes(pubkeys[i * 48:(i + 1) * 48]);
             bytes memory signature = bytes(signatures[i * 96:(i + 1) * 96]);
 
-            PendingDeposit memory deposit = PendingDeposit({
-                pubkey: pubkey,
-                signature: signature,
-                deposit_data_root: deposit_data_roots[i]
-            });
+            PendingDeposit memory deposit =
+                PendingDeposit({pubkey: pubkey, signature: signature, deposit_data_root: deposit_data_roots[i]});
             user.pendingDeposits.push(deposit);
         }
 
@@ -214,7 +205,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
      * @notice After the owner has verified the deposit conditions it can execute the deposits.
      */
     function executePendingDeposits(address benefactor) external onlyOwner {
-        User storage user = users[benefactor]; 
+        User storage user = users[benefactor];
         require(user.status == Status.Submitted, "not submitted status");
         user.status = Status.Executed;
 
@@ -228,8 +219,8 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
 
         // count is bounded by funder set value `maxPendingDeposits`. Funder should validate that the count of deposits
         // is correct before calling this function.
-        uint count = user.expectedDepositCount;
-        uint stakeAmountPerDeposit = user.totalStakeAmount / count;
+        uint256 count = user.expectedDepositCount;
+        uint256 stakeAmountPerDeposit = user.totalStakeAmount / count;
 
         // Implement a manual batchDeposit for have custom stake amounts
         // No need to validate bytes length, as they are checked in submitPendingDeposits
@@ -251,7 +242,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
      * be able to submit deposits twice to reduce the risk of front-running the funder.
      */
     function clearPendingDeposits(address benefactor) external onlyOwner {
-        User storage user = users[benefactor]; 
+        User storage user = users[benefactor];
         require(address(user.safe) != address(0), "not registered");
         require(user.status != Status.Pending, "already pending");
         user.status = Status.Pending;

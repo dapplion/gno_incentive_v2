@@ -33,9 +33,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         anyone = vm.addr(3);
 
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
-        depositContract = ISBCDepositContract(address(
-            new SBCDepositContract(address(withdrawalToken))
-        ));
+        depositContract = ISBCDepositContract(address(new SBCDepositContract(address(withdrawalToken))));
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
@@ -60,15 +58,10 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         vm.prank(funder);
         SafeProxy proxy = deployer.assignSafe(
-            benefactor,
-            expiry,
-            withdrawThreshold,
-            expectedDepositCount,
-            toDepositValue,
-            autoClaimEnabled
+            benefactor, expiry, withdrawThreshold, expectedDepositCount, toDepositValue, autoClaimEnabled
         );
         Safe safe = Safe(payable(address(proxy)));
-        
+
         return safe;
     }
 
@@ -254,7 +247,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         vm.warp(block.timestamp + expiryDuration + 1);
     }
 
-    function executePendingDeposits(uint numDeposits, uint depositValue) internal {
+    function executePendingDeposits(uint256 numDeposits, uint256 depositValue) internal {
         // Fund deployer for deposits
         withdrawalToken.mint(address(deployer), numDeposits * depositValue);
         vm.prank(funder);
@@ -267,7 +260,8 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         bytes32[] memory deposit_data_roots = new bytes32[](numDeposits);
 
         for (uint256 i = 0; i < numDeposits; i++) {
-            (bytes memory pubkey,, bytes memory signature, bytes32 deposit_data_root) = generateDepositData(address(safe), 1 ether);
+            (bytes memory pubkey,, bytes memory signature, bytes32 deposit_data_root) =
+                generateDepositData(address(safe), 1 ether);
 
             pubkeys = abi.encodePacked(pubkeys, pubkey);
             signatures = abi.encodePacked(signatures, signature);
@@ -279,17 +273,19 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     }
 
     // Fill deposit data with format valid pubkey and signature (actual signature is invalid)
-    function generateDepositData(
-        address withdrawalAddress,
-        uint256 stake_amount
-    ) internal returns (
-        bytes memory pubkey,
-        bytes memory withdrawal_credentials,
-        bytes memory signature,
-        bytes32 deposit_data_root
-    ) {
-        bytes memory pubkey = hex"a42d9eb4891da533237d7bb496138bba2b24221fda3b9f39762583e75ad484bf1e618ed48a2bae997fe4ccd685794b80";
-        bytes memory signature = hex"a3b59b76906764d6326903e0284be5517e8bd12eecd2062af0abc05ce0834ec75e42401909659f8d143ac0a7ded4eb3114d0469c639df20a3362a6be9179250fc222c0f420c4d831a532672a7259c64cfd3438aa3c0337f32df6be81b834ea34";
+    function generateDepositData(address withdrawalAddress, uint256 stake_amount)
+        internal
+        returns (
+            bytes memory pubkey,
+            bytes memory withdrawal_credentials,
+            bytes memory signature,
+            bytes32 deposit_data_root
+        )
+    {
+        bytes memory pubkey =
+            hex"a42d9eb4891da533237d7bb496138bba2b24221fda3b9f39762583e75ad484bf1e618ed48a2bae997fe4ccd685794b80";
+        bytes memory signature =
+            hex"a3b59b76906764d6326903e0284be5517e8bd12eecd2062af0abc05ce0834ec75e42401909659f8d143ac0a7ded4eb3114d0469c639df20a3362a6be9179250fc222c0f420c4d831a532672a7259c64cfd3438aa3c0337f32df6be81b834ea34";
         bytes memory withdrawal_credentials = addressTo0x1WithdrawalCredentials(withdrawalAddress);
         bytes32 deposit_data_root = computeDataRoot(pubkey, withdrawal_credentials, signature, stake_amount);
         return (pubkey, withdrawal_credentials, signature, deposit_data_root);
@@ -312,8 +308,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         bytes32[3] memory sig_parts = abi.decode(signature, (bytes32[3]));
         bytes32 signature_root = sha256(
             abi.encodePacked(
-                sha256(abi.encodePacked(sig_parts[0], sig_parts[1])),
-                sha256(abi.encodePacked(sig_parts[2], bytes32(0)))
+                sha256(abi.encodePacked(sig_parts[0], sig_parts[1])), sha256(abi.encodePacked(sig_parts[2], bytes32(0)))
             )
         );
         return sha256(
