@@ -31,8 +31,10 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         PendingDeposit[] pendingDeposits;
     }
 
+    /// @notice Deployed Safe and registered user
+    event RegisteredUser(address benefactor);
     /// @notice User has submitted deposit data
-    event SubmitPendingDeposits(address benefactor);
+    event SubmitPendingDeposits(address benefactor, uint256 count);
 
     uint256 nonce = 0;
     SafeProxyFactory public proxyFactory;
@@ -58,6 +60,20 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         depositContract = _depositContract;
     }
 
+    function getPendingDeposit(address benefactor, uint index) external view returns (
+        bytes pubkey;
+        bytes signature;
+        bytes32 deposit_data_root;
+    ) {
+        User storage user = users[benefactor];
+        uint16 expectedDepositCount = user.expectedDepositCount;
+        require(expectedDepositCount != 0, "not registered");
+        require(index < expectedDepositCount, "index out of bounds");
+        PendingDeposit storage pendingDeposit = user.pendingDeposits[index];
+        return (pendingDeposit.pubkey, pendingDeposit.signature, pendingDeposit.deposit_data_root);
+    }
+
+
     /**
      * @notice Deploys a safe for a benefactor address. Does not assign any funds to user, not sends any deposit
      * After deployment, funder should communicate the Safe address to the benefactor so they can produce signed
@@ -71,7 +87,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         uint256 totalStakeAmount,
         bool autoClaimEnabled
     )
-        public
+        external
         onlyOwner
         returns (SafeProxy)
     {
@@ -127,22 +143,47 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         user.totalStakeAmount = totalStakeAmount;
         delete user.pendingDeposits;
 
+        emit RegisteredUser(benefactor);
+
         return proxy;
     }
 
+
     /**
-     * @notice Deploys a safe for a benefactor address. Does not assign any funds to user, not sends any deposit
-     * After deployment, funder should communicate the Safe address to the benefactor so they can produce signed
-     * deposits and submit them with `submitPendingDeposits`
+     * @notice User submits signed deposit data for latter execution
      */
     function submitPendingDeposits(
         bytes calldata pubkeys,
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
-    ) public {
+    ) external {
+        _submitPendingDeposits(msg.sender, pubkeys, signatures, deposit_data_roots);
+    }
+
+    /**
+      * @notice Owner can submit deposit data on behalf of user
+      */
+    function submitPendingDepositsFor(
+        address benefactor,
+        bytes calldata pubkeys,
+        bytes calldata signatures,
+        bytes32[] calldata deposit_data_roots
+    ) external onlyOwner {
+        _submitPendingDeposits(benefactor, pubkeys, signatures, deposit_data_roots);
+    }
+
+    /**
+     * @notice Register pending deposits for latter offchain validation and execution
+     */
+    function _submitPendingDeposits(
+        address benefactor,
+        bytes calldata pubkeys,
+        bytes calldata signatures,
+        bytes32[] calldata deposit_data_roots
+    ) internal {
         User storage user = users[msg.sender]; 
-        // Only allow a registered user to submit deposits or owner as fallback
-        require(address(user.safe) != address(0) || msg.sender == owner(), "not allowed"); 
+        // Only allow a registered user to submit deposits
+        require(address(user.safe) != address(0), "not registered"); 
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
         uint256 count = deposit_data_roots.length;
         require(count == pubkeys.length / 48, "not same length");
@@ -166,13 +207,13 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
             user.pendingDeposits.push(deposit);
         }
 
-        emit SubmitPendingDeposits(msg.sender);
+        emit SubmitPendingDeposits(msg.sender, count);
     }
 
     /**
      * @notice After the owner has verified the deposit conditions it can execute the deposits.
      */
-    function executePendingDeposits(address benefactor) public onlyOwner {
+    function executePendingDeposits(address benefactor) external onlyOwner {
         User storage user = users[benefactor]; 
         require(user.status == Status.Submitted, "not submitted status");
         user.status = Status.Executed;
@@ -209,7 +250,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
      * @notice Allows owner to clear deposits for a benefactor in case they submit wrong data. Benefactor must not
      * be able to submit deposits twice to reduce the risk of front-running the funder.
      */
-    function clearPendingDeposits(address benefactor) public onlyOwner {
+    function clearPendingDeposits(address benefactor) external onlyOwner {
         User storage user = users[benefactor]; 
         require(address(user.safe) != address(0), "not registered");
         require(user.status != Status.Pending, "already pending");
