@@ -8,9 +8,10 @@ import "./GnosisDAppNodeIncentiveV2SafeModuleSetup.sol";
 import "./GnosisDAppNodeIncentiveV2SafeModule.sol";
 import "./utils/ISBCDepositContract.sol";
 import "./utils/Ownable.sol";
+import "./utils/Claimable.sol";
 import "./utils/IERC20.sol";
 
-contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
+contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     enum Status {
         Pending,
         Submitted,
@@ -247,5 +248,15 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         require(user.status != Status.Pending, "already pending");
         user.status = Status.Pending;
         delete user.pendingDeposits;
+    }
+
+    /**
+     * @dev Allows to transfer any locked token from this contract.
+     * Only owner can call this method.
+     * @param _token address of the token, if it is not provided (0x00..00), native coins will be transferred.
+     * @param _to address that will receive the locked tokens from this contract.
+     */
+    function claimTokens(address _token, address _to) external onlyOwner {
+        _claimValues(_token, _to);
     }
 }
