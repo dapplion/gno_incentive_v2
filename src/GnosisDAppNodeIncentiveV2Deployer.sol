@@ -175,7 +175,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
     ) internal {
-        User storage user = users[msg.sender];
+        User storage user = users[benefactor];
         // Only allow a registered user to submit deposits
         require(address(user.safe) != address(0), "not registered");
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
