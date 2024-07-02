@@ -245,7 +245,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     function clearPendingDeposits(address benefactor) external onlyOwner {
         User storage user = users[benefactor];
         require(address(user.safe) != address(0), "not registered");
-        require(user.status != Status.Pending, "already pending");
+        require(user.status == Status.Submitted, "not submitted");
         user.status = Status.Pending;
         delete user.pendingDeposits;
     }
