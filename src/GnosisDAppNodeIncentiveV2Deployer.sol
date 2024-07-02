@@ -8,9 +8,10 @@ import "./GnosisDAppNodeIncentiveV2SafeModuleSetup.sol";
 import "./GnosisDAppNodeIncentiveV2SafeModule.sol";
 import "./utils/ISBCDepositContract.sol";
 import "./utils/Ownable.sol";
+import "./utils/Claimable.sol";
 import "./utils/IERC20.sol";
 
-contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
+contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     enum Status {
         Pending,
         Submitted,
@@ -175,7 +176,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
     ) internal {
-        User storage user = users[msg.sender];
+        User storage user = users[benefactor];
         // Only allow a registered user to submit deposits
         require(address(user.safe) != address(0), "not registered");
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
@@ -244,8 +245,18 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable {
     function clearPendingDeposits(address benefactor) external onlyOwner {
         User storage user = users[benefactor];
         require(address(user.safe) != address(0), "not registered");
-        require(user.status != Status.Pending, "already pending");
+        require(user.status == Status.Submitted, "not submitted");
         user.status = Status.Pending;
         delete user.pendingDeposits;
+    }
+
+    /**
+     * @dev Allows to transfer any locked token from this contract.
+     * Only owner can call this method.
+     * @param _token address of the token, if it is not provided (0x00..00), native coins will be transferred.
+     * @param _to address that will receive the locked tokens from this contract.
+     */
+    function claimTokens(address _token, address _to) external onlyOwner {
+        _claimValues(_token, _to);
     }
 }
