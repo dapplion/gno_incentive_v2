@@ -199,7 +199,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
             user.pendingDeposits.push(deposit);
         }
 
-        emit SubmitPendingDeposits(msg.sender, count);
+        emit SubmitPendingDeposits(benefactor, count);
     }
 
     /**
