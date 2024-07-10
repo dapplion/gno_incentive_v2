@@ -49,15 +49,14 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     constructor(
         SafeProxyFactory _proxyFactory,
         Safe _safe,
-        GnosisDAppNodeIncentiveV2SafeModule _safeModule,
-        GnosisDAppNodeIncentiveV2SafeModuleSetup _safeModuleSetup,
         ISBCDepositContract _depositContract,
         address owner
     ) Ownable(owner) {
         proxyFactory = _proxyFactory;
         safe = _safe;
-        safeModule = _safeModule;
-        safeModuleSetup = _safeModuleSetup;
+        address stake_token = depositContract.stake_token();
+        safeModule = new GnosisDAppNodeIncentiveV2SafeModule(stake_token, owner);
+        safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
         depositContract = _depositContract;
     }
 

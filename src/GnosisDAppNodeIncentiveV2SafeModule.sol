@@ -3,9 +3,10 @@ pragma solidity ^0.8.13;
 
 import "safe-smart-account/contracts/Safe.sol";
 import "safe-smart-account/contracts/common/Enum.sol";
+import "./utils/Ownable.sol";
 import "./utils/IERC20.sol";
 
-contract GnosisDAppNodeIncentiveV2SafeModule {
+contract GnosisDAppNodeIncentiveV2SafeModule is Ownable {
     // Address of the token to claim withdrawals from
     IERC20 private withdrawalToken;
 
@@ -26,7 +27,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
 
     mapping(Safe => UserInfo) public userInfos;
 
-    constructor(address _withdrawalToken) {
+    constructor(address _withdrawalToken, address owner) Ownable(owner) {
         withdrawalToken = IERC20(_withdrawalToken);
     }
 
@@ -43,7 +44,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         address benefactor,
         address funder,
         bool autoClaimEnabled
-    ) external {
+    ) external onlyOwner {
         Safe sender = Safe(payable(msg.sender));
         require(withdrawThreshold >= 0.1 ether, "withdrawThreshold too low");
         require(userInfos[sender].expiry == 0, "already registered");
@@ -58,7 +59,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
     function setAutoClaim(Safe from, bool _autoClaimEnabled) external {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
-        require(msg.sender == info.benefactor || msg.sender == info.funder, "only benefactor or funder");
+        require(msg.sender == info.benefactor || msg.sender == owner(), "only benefactor or owner");
         // Note: no need to check for terminated, autoClaim has no influence on a terminated program
         info.autoClaimEnabled = _autoClaimEnabled;
     }
@@ -84,12 +85,11 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
      * to exit the validators
      * @param from Address of Safe to terminate
      */
-    function terminate(Safe from) external {
+    function terminate(Safe from) external onlyOwner {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         require(block.timestamp < info.expiry, "already expired");
-        require(msg.sender == info.funder, "only funder");
-        // No need to check for already terminated, funder has no reason to call this function multiple times and will have
+        // No need to check for already terminated, owner has no reason to call this function multiple times and will have
         // no effect as benefactor is already removed
 
         // Mark as terminated
@@ -126,8 +126,8 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
             transferTo = info.funder;
         } else if (block.timestamp < info.expiry && balance > info.withdrawThreshold) {
             // During incentive program, contract has too much balance indicating a potential exit.
-            // Only allow funder to resolve this case.
-            require(msg.sender == info.funder, "only funder");
+            // Only allow owner to resolve this case.
+            require(msg.sender == owner(), "only owner");
             if (funderOnlyTransferToSelf) {
                 transferTo = info.funder;
             } else {

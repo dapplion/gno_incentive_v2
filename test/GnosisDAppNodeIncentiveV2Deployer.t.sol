@@ -37,11 +37,10 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
-        safeModule = new GnosisDAppNodeIncentiveV2SafeModule(address(withdrawalToken));
-        GnosisDAppNodeIncentiveV2SafeModuleSetup safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
         deployer = new GnosisDAppNodeIncentiveV2Deployer(
-            proxy, safeImplementation, safeModule, safeModuleSetup, depositContract, funder
+            proxy, safeImplementation, depositContract, funder
         );
+        safeModule = deployer.safeModule();
 
         // Deploy single safe
         safe = deploySafeProxy(4);
