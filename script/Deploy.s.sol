@@ -16,12 +16,14 @@ contract DeployScript is Script {
         address proxyFactory = vm.envAddress("PROXY_FACTORY");
         address safe = vm.envAddress("SAFE");
         address depositContract = vm.envAddress("DEPOSIT_CONTRACT");
+        address withdrawalToken = vm.envAddress("WITHDRAWAL_TOKEN");
         address owner = vm.envAddress("OWNER");
 
         GnosisDAppNodeIncentiveV2Deployer deployer = new GnosisDAppNodeIncentiveV2Deployer(
             SafeProxyFactory(proxyFactory),
             Safe(payable(safe)),
             ISBCDepositContract(depositContract),
+            withdrawalToken,
             owner
         );
     }
