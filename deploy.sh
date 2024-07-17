@@ -4,7 +4,7 @@
 # Must do this actions:
 # - Assign safe to user at start of program
 # - Terminate safe at end of program
-export OWNER=0x3D889790048F1507FDd0d97A433f7cb55F28dab7
+export OWNER=0x0000000000000000000000000000000000000000
 
 ### Gnosis network addresses
 # Gnosis v1.4.1 https://github.com/safe-global/safe-deployments/blob/bb7f75f6c09dc737b73ee9622a5167591bcab8ac/src/assets/v1.4.1/safe_proxy_factory.json#L7
@@ -16,6 +16,12 @@ export DEPOSIT_CONTRACT=0x0B98057eA310F4d31F2a452B414647007d1645d9
 # Gnosis chain's GNO wrapper token: The return of `state_token` of `DEPOSIT_CONTRACT` https://gnosisscan.io/token/0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb
 export WITHDRAWAL_TOKEN=0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb
 
+# Expects an env with the variables:
+# `ETHERSCAN_API_KEY`: Api key from gnosisscan.io for automatic verification. Free tier works, just login
+# `RAW_PRIVATE_KEY`: This script needs a wallet, you can use raw private key, keystore or many other methods,
+#                    just check the docs of `forge script --help`.
+# `OWNER`: Address of the account that will be the owner / admin of all contracts and take the role of "funder"
+#          in the SafeModule. This address should match the address of the wallet sending the transactions.
 source .env
 
 # Can't deploy, as I get this error
