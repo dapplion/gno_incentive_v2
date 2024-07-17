@@ -37,6 +37,22 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
             (info.expiry, info.withdrawThreshold, info.benefactor, info.funder, info.autoClaimEnabled, info.terminated);
     }
 
+    /**
+     * @notice Register a safe with this module. This method is meant to be called FROM a safe to authorize this
+     * safe module to act on its behalf overriding the signers requirements.
+     * @param expiry UNIX timestamp of when the incentive program ends. After this time the user will take full
+     *        ownership of the funds
+     * @param withdrawThreshold Maximum contract balance in WEI that the benefactor is able to withdraw on its
+     *        own without authorization of the funder. This amount should be strictly less than the minimal
+     *        possible withdrawl balance. Note that on incentive programs of more than one index, the benefactor
+     *        can withdraw indexes one by one. So withdrawThreshold should be set to the ejection balance of a
+     *        single validator: 0.5 GNO or 500000000000000000 wei
+     * @param benefactor address of the incentive program benefactor
+     * @param funder address of the admin / owner / funder of the incentive program
+     * @param autoClaimEnabled benefactor allows anyone to claim partial withdrawals into the benefactor address.
+     *        A user may prefer to have it set to false for tax reasons or if it wants to strictly control its
+     *        flow of value.
+     */
     function registerSafe(
         uint256 expiry,
         uint256 withdrawThreshold,
