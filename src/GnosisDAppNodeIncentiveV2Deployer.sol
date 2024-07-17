@@ -160,7 +160,18 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice User submits signed deposit data for latter execution
+     * @notice User submits signed deposit data for latter execution. User is expected to submit a specific
+     * number of deposits. This number can be retrieved from the public mapping `users` querying by benefactor
+     * address, and checking the property `expectedDepositCount`.
+     * @param pubkeys Concatenated bytes of each `pubkey` property of all deposit data JSONs sorted by deposit
+     * index. For example, given the pubkeys:
+     * - deposit_0.pubkey = 0x1111 (it's actually 48 bytes)
+     * - deposit_1.pubkey = 0x2222
+     * `pubkeys` must be set to `0x11112222 (it's actually 48*2 bytes)
+     * @param signatures Concatenated bytes of each `signature` property of all deposit data JSONs sorted by
+     * deposit index (or same order as the pubkeys). The concatenation format is the same as for pubkeys.
+     * @param deposit_data_roots Array of the each `deposit_data_root` property of all deposit data JSONs sorted
+     * by deposit index (or same order as the pubkeys).
      */
     function submitPendingDeposits(
         bytes calldata pubkeys,
@@ -171,7 +182,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice Owner can submit deposit data on behalf of user
+     * @notice Owner can submit deposit data on behalf of user. Arguments are the same as for `submitPendingDeposits`
      */
     function submitPendingDepositsFor(
         address benefactor,
