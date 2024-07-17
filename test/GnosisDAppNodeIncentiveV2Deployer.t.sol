@@ -37,11 +37,10 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         SafeProxyFactory proxy = new SafeProxyFactory();
         Safe safeImplementation = new Safe();
-        safeModule = new GnosisDAppNodeIncentiveV2SafeModule(address(withdrawalToken));
-        GnosisDAppNodeIncentiveV2SafeModuleSetup safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
         deployer = new GnosisDAppNodeIncentiveV2Deployer(
-            proxy, safeImplementation, safeModule, safeModuleSetup, depositContract, funder
+            proxy, safeImplementation, depositContract, address(withdrawalToken), funder
         );
+        safeModule = deployer.safeModule();
 
         // Deploy single safe
         safe = deploySafeProxy(4);
@@ -58,7 +57,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         vm.prank(funder);
         SafeProxy proxy = deployer.assignSafe(
-            benefactor, expiry, withdrawThreshold, expectedDepositCount, toDepositValue, autoClaimEnabled
+            expiry, withdrawThreshold, benefactor, autoClaimEnabled, expectedDepositCount, toDepositValue
         );
         Safe safe = Safe(payable(address(proxy)));
 
@@ -222,6 +221,24 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         deployer.clearPendingDeposits(benefactor);
         submitPendingDeposits(4);
         executePendingDeposits(4, 1 ether);
+    }
+
+    // Testing this contract on Gnosis chain with a deposit data created with 
+    // the tool https://github.com/gnosischain/validator-data-generator
+    // Test if the deposit is correct w.r.t. to this contract's logic
+    function test_invalid_deposit_data_root() public {
+        bytes memory pubkey =
+            hex"8ec8542ad9f12d7e3c4ab35af1c005175244837bfb75125d1ea9669444f62911b430b35c6f1da9f732a1c07cb35b7e0b";
+        bytes memory signature =
+            hex"a0e2e422a220c15d99eba4675aebe4768ae846d2cb9b9ee8db5a19b8c20ee4c010bcfae099894cdf2d523b3a8fcb4d0e09a928125b5d9e43a80771d999d30137138364d7aff1c9bc38b6d59df8b6c08d3f85fc390e0d7f7f1f5d5b7f91feb702";
+        bytes memory withdrawal_credentials = hex"0100000000000000000000009f755c84f51bfed22b98813db0b78b51e501dfeb";
+        bytes32 expected_deposit_data_root = hex"adeb978612875a4f25312acff0d4d4ae5e87bb3677b6d052e874f0479eccd4ac";
+        bytes32 expected_deposit_message_root = hex"3b8473c6904305c71a55252e131cb0730360e2005c367bdcc8b3aafb03acc308";
+        uint256 stake_amount = 1 ether;
+        bytes32 deposit_data_root = computeDataRoot(pubkey, withdrawal_credentials, signature, stake_amount);
+        assertEq(deposit_data_root, expected_deposit_data_root);
+        vm.expectRevert();
+        assertEq(deposit_data_root, expected_deposit_message_root);
     }
 
     function isExpired(Safe safe) public returns (bool) {

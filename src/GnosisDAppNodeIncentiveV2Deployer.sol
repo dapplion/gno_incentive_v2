@@ -33,7 +33,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /// @notice Deployed Safe and registered user
-    event RegisteredUser(address benefactor);
+    event RegisteredUser(address benefactor, address safe);
     /// @notice User has submitted deposit data
     event SubmitPendingDeposits(address benefactor, uint256 count);
 
@@ -49,15 +49,14 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     constructor(
         SafeProxyFactory _proxyFactory,
         Safe _safe,
-        GnosisDAppNodeIncentiveV2SafeModule _safeModule,
-        GnosisDAppNodeIncentiveV2SafeModuleSetup _safeModuleSetup,
         ISBCDepositContract _depositContract,
+        address withdrawalToken,
         address owner
     ) Ownable(owner) {
         proxyFactory = _proxyFactory;
         safe = _safe;
-        safeModule = _safeModule;
-        safeModuleSetup = _safeModuleSetup;
+        safeModule = new GnosisDAppNodeIncentiveV2SafeModule(withdrawalToken);
+        safeModuleSetup = new GnosisDAppNodeIncentiveV2SafeModuleSetup();
         depositContract = _depositContract;
     }
 
@@ -78,14 +77,30 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
      * @notice Deploys a safe for a benefactor address. Does not assign any funds to user, not sends any deposit
      * After deployment, funder should communicate the Safe address to the benefactor so they can produce signed
      * deposits and submit them with `submitPendingDeposits`
+     * @param expiry UNIX timestamp of when the incentive program ends. After this time the user will take full
+     *        ownership of the funds
+     * @param withdrawThreshold Maximum contract balance in WEI that the benefactor is able to withdraw on its
+     *        own without authorization of the funder. This amount should be strictly less than the minimal
+     *        possible withdrawl balance. Note that on incentive programs of more than one index, the benefactor
+     *        can withdraw indexes one by one. So withdrawThreshold should be set to the ejection balance of a
+     *        single validator: 0.5 GNO or 500000000000000000 wei
+     * @param benefactor address of the incentive program benefactor
+     * @param autoClaimEnabled benefactor allows anyone to claim partial withdrawals into the benefactor address.
+     *        A user may prefer to have it set to false for tax reasons or if it wants to strictly control its
+     *        flow of value.
+     * @param expectedDepositCount How many single deposit data items the benefactor is expected to submit. 
+     *        For example: 4
+     * @param totalStakeAmount Total amount of GNO in WEI that the funder will submit to the deposit contract,
+     *        split equally among each deposit data item. Forwards compatible with MaxEB if we want to deposit 
+     *        consolidated validators. For example if 4 GNO: 4000000000000000000.
      */
     function assignSafe(
-        address benefactor,
         uint256 expiry,
         uint256 withdrawThreshold,
+        address benefactor,
+        bool autoClaimEnabled,
         uint16 expectedDepositCount,
-        uint256 totalStakeAmount,
-        bool autoClaimEnabled
+        uint256 totalStakeAmount
     ) external onlyOwner returns (SafeProxy) {
         // Only allow a single safe per benefactor address for simplicity
         User storage user = users[benefactor];
@@ -139,13 +154,24 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
         user.totalStakeAmount = totalStakeAmount;
         delete user.pendingDeposits;
 
-        emit RegisteredUser(benefactor);
+        emit RegisteredUser(benefactor, address(proxy));
 
         return proxy;
     }
 
     /**
-     * @notice User submits signed deposit data for latter execution
+     * @notice User submits signed deposit data for latter execution. User is expected to submit a specific
+     * number of deposits. This number can be retrieved from the public mapping `users` querying by benefactor
+     * address, and checking the property `expectedDepositCount`.
+     * @param pubkeys Concatenated bytes of each `pubkey` property of all deposit data JSONs sorted by deposit
+     * index. For example, given the pubkeys:
+     * - deposit_0.pubkey = 0x1111 (it's actually 48 bytes)
+     * - deposit_1.pubkey = 0x2222
+     * `pubkeys` must be set to `0x11112222 (it's actually 48*2 bytes)
+     * @param signatures Concatenated bytes of each `signature` property of all deposit data JSONs sorted by
+     * deposit index (or same order as the pubkeys). The concatenation format is the same as for pubkeys.
+     * @param deposit_data_roots Array of the each `deposit_data_root` property of all deposit data JSONs sorted
+     * by deposit index (or same order as the pubkeys).
      */
     function submitPendingDeposits(
         bytes calldata pubkeys,
@@ -156,7 +182,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice Owner can submit deposit data on behalf of user
+     * @notice Owner can submit deposit data on behalf of user. Arguments are the same as for `submitPendingDeposits`
      */
     function submitPendingDepositsFor(
         address benefactor,
