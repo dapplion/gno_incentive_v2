@@ -33,9 +33,9 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /// @notice Deployed Safe and registered user
-    event RegisteredUser(address benefactor, address safe);
+    event RegisteredUser(address beneficiary, address safe);
     /// @notice User has submitted deposit data
-    event SubmitPendingDeposits(address benefactor, uint256 count);
+    event SubmitPendingDeposits(address beneficiary, uint256 count);
 
     uint256 nonce = 0;
     SafeProxyFactory public proxyFactory;
@@ -60,12 +60,12 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
         depositContract = _depositContract;
     }
 
-    function getPendingDeposit(address benefactor, uint256 index)
+    function getPendingDeposit(address beneficiary, uint256 index)
         external
         view
         returns (bytes memory pubkey, bytes memory signature, bytes32 deposit_data_root)
     {
-        User storage user = users[benefactor];
+        User storage user = users[beneficiary];
         uint16 expectedDepositCount = user.expectedDepositCount;
         require(expectedDepositCount != 0, "not registered");
         require(index < expectedDepositCount, "index out of bounds");
@@ -74,21 +74,21 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice Deploys a safe for a benefactor address. Does not assign any funds to user, not sends any deposit
-     * After deployment, funder should communicate the Safe address to the benefactor so they can produce signed
+     * @notice Deploys a safe for a beneficiary address. Does not assign any funds to user, not sends any deposit
+     * After deployment, funder should communicate the Safe address to the beneficiary so they can produce signed
      * deposits and submit them with `submitPendingDeposits`
      * @param expiry UNIX timestamp of when the incentive program ends. After this time the user will take full
      *        ownership of the funds
-     * @param withdrawThreshold Maximum contract balance in WEI that the benefactor is able to withdraw on its
+     * @param withdrawThreshold Maximum contract balance in WEI that the beneficiary is able to withdraw on its
      *        own without authorization of the funder. This amount should be strictly less than the minimal
-     *        possible withdrawl balance. Note that on incentive programs of more than one index, the benefactor
+     *        possible withdrawl balance. Note that on incentive programs of more than one index, the beneficiary
      *        can withdraw indexes one by one. So withdrawThreshold should be set to the ejection balance of a
      *        single validator: 0.5 GNO or 500000000000000000 wei
-     * @param benefactor address of the incentive program benefactor
-     * @param autoClaimEnabled benefactor allows anyone to claim partial withdrawals into the benefactor address.
+     * @param beneficiary address of the incentive program beneficiary
+     * @param autoClaimEnabled beneficiary allows anyone to claim partial withdrawals into the beneficiary address.
      *        A user may prefer to have it set to false for tax reasons or if it wants to strictly control its
      *        flow of value.
-     * @param expectedDepositCount How many single deposit data items the benefactor is expected to submit. 
+     * @param expectedDepositCount How many single deposit data items the beneficiary is expected to submit. 
      *        For example: 4
      * @param totalStakeAmount Total amount of GNO in WEI that the funder will submit to the deposit contract,
      *        split equally among each deposit data item. Forwards compatible with MaxEB if we want to deposit 
@@ -97,19 +97,19 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     function assignSafe(
         uint256 expiry,
         uint256 withdrawThreshold,
-        address benefactor,
+        address beneficiary,
         bool autoClaimEnabled,
         uint16 expectedDepositCount,
         uint256 totalStakeAmount
     ) external onlyOwner returns (SafeProxy) {
-        // Only allow a single safe per benefactor address for simplicity
-        User storage user = users[benefactor];
+        // Only allow a single safe per beneficiary address for simplicity
+        User storage user = users[beneficiary];
         require(address(user.safe) == address(0), "already registered");
 
         address funder = owner();
         address[] memory safeOwners = new address[](2);
         safeOwners[0] = funder;
-        safeOwners[1] = benefactor;
+        safeOwners[1] = beneficiary;
         uint256 threshold = 2; // 2/2 multi-sig
 
         bytes memory setupModulesData = abi.encodeWithSignature(
@@ -117,7 +117,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
             safeModule,
             expiry,
             withdrawThreshold,
-            benefactor,
+            beneficiary,
             funder,
             autoClaimEnabled
         );
@@ -154,14 +154,14 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
         user.totalStakeAmount = totalStakeAmount;
         delete user.pendingDeposits;
 
-        emit RegisteredUser(benefactor, address(proxy));
+        emit RegisteredUser(beneficiary, address(proxy));
 
         return proxy;
     }
 
     /**
      * @notice User submits signed deposit data for latter execution. User is expected to submit a specific
-     * number of deposits. This number can be retrieved from the public mapping `users` querying by benefactor
+     * number of deposits. This number can be retrieved from the public mapping `users` querying by beneficiary
      * address, and checking the property `expectedDepositCount`.
      * @param pubkeys Concatenated bytes of each `pubkey` property of all deposit data JSONs sorted by deposit
      * index. For example, given the pubkeys:
@@ -185,24 +185,24 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
      * @notice Owner can submit deposit data on behalf of user. Arguments are the same as for `submitPendingDeposits`
      */
     function submitPendingDepositsFor(
-        address benefactor,
+        address beneficiary,
         bytes calldata pubkeys,
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
     ) external onlyOwner {
-        _submitPendingDeposits(benefactor, pubkeys, signatures, deposit_data_roots);
+        _submitPendingDeposits(beneficiary, pubkeys, signatures, deposit_data_roots);
     }
 
     /**
      * @notice Register pending deposits for latter offchain validation and execution
      */
     function _submitPendingDeposits(
-        address benefactor,
+        address beneficiary,
         bytes calldata pubkeys,
         bytes calldata signatures,
         bytes32[] calldata deposit_data_roots
     ) internal {
-        User storage user = users[benefactor];
+        User storage user = users[beneficiary];
         // Only allow a registered user to submit deposits
         require(address(user.safe) != address(0), "not registered");
         // Sanity check lengths, allow to submit less deposits in case MaxEB activates early
@@ -225,14 +225,14 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
             user.pendingDeposits.push(deposit);
         }
 
-        emit SubmitPendingDeposits(benefactor, count);
+        emit SubmitPendingDeposits(beneficiary, count);
     }
 
     /**
      * @notice After the owner has verified the deposit conditions it can execute the deposits.
      */
-    function executePendingDeposits(address benefactor) external onlyOwner {
-        User storage user = users[benefactor];
+    function executePendingDeposits(address beneficiary) external onlyOwner {
+        User storage user = users[beneficiary];
         require(user.status == Status.Submitted, "not submitted status");
         user.status = Status.Executed;
 
@@ -265,11 +265,11 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice Allows owner to clear deposits for a benefactor in case they submit wrong data. Benefactor must not
+     * @notice Allows owner to clear deposits for a beneficiary in case they submit wrong data. beneficiary must not
      * be able to submit deposits twice to reduce the risk of front-running the funder.
      */
-    function clearPendingDeposits(address benefactor) external onlyOwner {
-        User storage user = users[benefactor];
+    function clearPendingDeposits(address beneficiary) external onlyOwner {
+        User storage user = users[beneficiary];
         require(address(user.safe) != address(0), "not registered");
         require(user.status == Status.Submitted, "not submitted");
         user.status = Status.Pending;

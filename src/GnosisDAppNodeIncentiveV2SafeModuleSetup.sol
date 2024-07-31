@@ -22,13 +22,13 @@ contract GnosisDAppNodeIncentiveV2SafeModuleSetup {
         address safeModule,
         uint256 expiry,
         uint256 withdrawThreshold,
-        address benefactor,
+        address beneficiary,
         address funder,
         bool autoClaimEnabled
     ) external {
         Safe(payable(address(this))).enableModule(safeModule);
         GnosisDAppNodeIncentiveV2SafeModule(safeModule).registerSafe(
-            expiry, withdrawThreshold, benefactor, funder, autoClaimEnabled
+            expiry, withdrawThreshold, beneficiary, funder, autoClaimEnabled
         );
     }
 }
