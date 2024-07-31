@@ -74,11 +74,11 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice Deploys a safe for a beneficiary address. Does not assign any funds to user, not sends any deposit
+     * @notice Deploys a safe for a beneficiary address. Does not assign any funds to user, does not send any deposit.
      * After deployment, funder should communicate the Safe address to the beneficiary so they can produce signed
      * deposits and submit them with `submitPendingDeposits`
      * @param expiry UNIX timestamp of when the incentive program ends. After this time the user will take full
-     *        ownership of the funds
+     *        ownership of the funds. Should be current timestamp plus one year.
      * @param withdrawThreshold Maximum contract balance in WEI that the beneficiary is able to withdraw on its
      *        own without authorization of the funder. This amount should be strictly less than the minimal
      *        possible withdrawl balance. Note that on incentive programs of more than one index, the beneficiary
@@ -87,7 +87,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
      * @param beneficiary address of the incentive program beneficiary
      * @param autoClaimEnabled beneficiary allows anyone to claim partial withdrawals into the beneficiary address.
      *        A user may prefer to have it set to false for tax reasons or if it wants to strictly control its
-     *        flow of value.
+     *        flow of value. true/false.
      * @param expectedDepositCount How many single deposit data items the beneficiary is expected to submit. 
      *        For example: 4
      * @param totalStakeAmount Total amount of GNO in WEI that the funder will submit to the deposit contract,
@@ -160,7 +160,7 @@ contract GnosisDAppNodeIncentiveV2Deployer is Ownable, Claimable {
     }
 
     /**
-     * @notice User submits signed deposit data for latter execution. User is expected to submit a specific
+     * @notice User submits signed deposit data for later execution. User is expected to submit a specific
      * number of deposits. This number can be retrieved from the public mapping `users` querying by beneficiary
      * address, and checking the property `expectedDepositCount`.
      * @param pubkeys Concatenated bytes of each `pubkey` property of all deposit data JSONs sorted by deposit
