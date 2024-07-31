@@ -14,8 +14,8 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         uint256 expiry;
         // Balance threshold
         uint256 withdrawThreshold;
-        // Benefactor address
-        address benefactor;
+        // beneficiary address
+        address beneficiary;
         // Funder address
         address funder;
         // If auto-claim is enabled for this contract
@@ -34,7 +34,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         UserInfo storage info = userInfos[_safe];
         require(info.expiry > 0, "not registered");
         return
-            (info.expiry, info.withdrawThreshold, info.benefactor, info.funder, info.autoClaimEnabled, info.terminated);
+            (info.expiry, info.withdrawThreshold, info.beneficiary, info.funder, info.autoClaimEnabled, info.terminated);
     }
 
     /**
@@ -42,42 +42,42 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
      * safe module to act on its behalf overriding the signers requirements.
      * @param expiry UNIX timestamp of when the incentive program ends. After this time the user will take full
      *        ownership of the funds
-     * @param withdrawThreshold Maximum contract balance in WEI that the benefactor is able to withdraw on its
+     * @param withdrawThreshold Maximum contract balance in WEI that the beneficiary is able to withdraw on its
      *        own without authorization of the funder. This amount should be strictly less than the minimal
-     *        possible withdrawl balance. Note that on incentive programs of more than one index, the benefactor
+     *        possible withdrawl balance. Note that on incentive programs of more than one index, the beneficiary
      *        can withdraw indexes one by one. So withdrawThreshold should be set to the ejection balance of a
      *        single validator: 0.5 GNO or 500000000000000000 wei
-     * @param benefactor address of the incentive program benefactor
+     * @param beneficiary address of the incentive program beneficiary
      * @param funder address of the admin / owner / funder of the incentive program
-     * @param autoClaimEnabled benefactor allows anyone to claim partial withdrawals into the benefactor address.
+     * @param autoClaimEnabled beneficiary allows anyone to claim partial withdrawals into the beneficiary address.
      *        A user may prefer to have it set to false for tax reasons or if it wants to strictly control its
      *        flow of value.
      */
     function registerSafe(
         uint256 expiry,
         uint256 withdrawThreshold,
-        address benefactor,
+        address beneficiary,
         address funder,
         bool autoClaimEnabled
     ) external {
         // Safe to register with msg.sender. Safe address is deterministic on it initializer payload. The target Safe
-        // that we will deploy is owned by benefactor and funder, and includes init code to call this function
+        // that we will deploy is owned by beneficiary and funder, and includes init code to call this function
         // on deployment. Any change on init code or owners will result in a different Safe address.
         Safe sender = Safe(payable(msg.sender));
         require(withdrawThreshold >= 0.1 ether, "withdrawThreshold too low");
         require(userInfos[sender].expiry == 0, "already registered");
         require(expiry > block.timestamp, "must expire in the future");
-        userInfos[sender] = UserInfo(expiry, withdrawThreshold, benefactor, funder, autoClaimEnabled, false);
+        userInfos[sender] = UserInfo(expiry, withdrawThreshold, beneficiary, funder, autoClaimEnabled, false);
     }
 
     /**
-     * @notice Allow benefactor to enable auto-claim to allow any automated party to claim funds to benefactor.
+     * @notice Allow beneficiary to enable auto-claim to allow any automated party to claim funds to beneficiary.
      * @param from Address of Safe to enable auto claim
      */
     function setAutoClaim(Safe from, bool _autoClaimEnabled) external {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
-        require(msg.sender == info.benefactor || msg.sender == info.funder, "only benefactor or funder");
+        require(msg.sender == info.beneficiary || msg.sender == info.funder, "only beneficiary or funder");
         // Note: no need to check for terminated, autoClaim has no influence on a terminated program
         info.autoClaimEnabled = _autoClaimEnabled;
     }
@@ -109,14 +109,14 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         require(block.timestamp < info.expiry, "already expired");
         require(msg.sender == info.funder, "only funder");
         // No need to check for already terminated, funder has no reason to call this function multiple times and will have
-        // no effect as benefactor is already removed
+        // no effect as beneficiary is already removed
 
         // Mark as terminated
         info.terminated = true;
 
-        // Remove benefactor
+        // Remove beneficiary
         bytes memory data =
-            abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.benefactor, 1);
+            abi.encodeWithSignature("removeOwner(address,address,uint256)", info.funder, info.beneficiary, 1);
         require(
             from.execTransactionFromModule(address(from), 0, data, Enum.Operation.Call), "error safe exec removeOwner"
         );
@@ -124,11 +124,11 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
 
     /**
      * @notice Withdraw balance from withdrawal credentials bypassing the Safe 2/2 threshold.
-     * Allows the benefactor to withdraw skimmed rewards while under some threshold. If the contract
+     * Allows the beneficiary to withdraw skimmed rewards while under some threshold. If the contract
      * holds over `threshold` of balance the funder must resolve the case by setting `funderOnlyTransferToSelf`
-     * - If the benefactor has broken the incentive program rules, set `funderOnlyTransferToSelf` to true, and
+     * - If the beneficiary has broken the incentive program rules, set `funderOnlyTransferToSelf` to true, and
      *   consider terminating the contract
-     * - If the benefactor has NOT broken the incentive program rules (i.e. someone transfered extra GNO to
+     * - If the beneficiary has NOT broken the incentive program rules (i.e. someone transfered extra GNO to
      *      this address for some reason, set `funderOnlyTransferToSelf` to false to resolve the dispute.
      * @param from Address of Safe to withdraw funds from
      * @param funderOnlyTransferToSelf Optional bool used by funder only to resolve a balance over threshold case
@@ -137,7 +137,7 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
         UserInfo storage info = userInfos[from];
         require(info.expiry != 0, "not registered");
         uint256 balance = withdrawalToken.balanceOf(address(from));
-        // Note: transferTo can only be set to either funder or benefactor
+        // Note: transferTo can only be set to either funder or beneficiary
         address transferTo;
 
         if (info.terminated) {
@@ -150,15 +150,15 @@ contract GnosisDAppNodeIncentiveV2SafeModule {
             if (funderOnlyTransferToSelf) {
                 transferTo = info.funder;
             } else {
-                transferTo = info.benefactor;
+                transferTo = info.beneficiary;
             }
         } else {
             // Here either incentive program has expired, or there's a small partial withdrawal (no exit).
-            // Allow anyone to trigger if auto claim enabled, else only the benefactor.
+            // Allow anyone to trigger if auto claim enabled, else only the beneficiary.
             if (!info.autoClaimEnabled) {
-                require(msg.sender == info.benefactor, "only benefactor");
+                require(msg.sender == info.beneficiary, "only beneficiary");
             }
-            transferTo = info.benefactor;
+            transferTo = info.beneficiary;
         }
 
         bytes memory data = abi.encodeWithSignature("transfer(address,uint256)", transferTo, balance);

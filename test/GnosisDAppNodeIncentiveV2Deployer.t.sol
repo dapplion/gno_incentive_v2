@@ -22,14 +22,14 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     uint256 amountUnderThreshold = 0.1 ether;
     uint256 expiryDuration = 365 days;
     address funder;
-    address benefactor;
+    address beneficiary;
     address anyone;
     Safe safe;
 
     function setUp() public {
         // Re-usable addresses
         funder = vm.addr(1);
-        benefactor = vm.addr(2);
+        beneficiary = vm.addr(2);
         anyone = vm.addr(3);
 
         withdrawalToken = new UnsafeERC20("GNO", "GNO");
@@ -47,9 +47,9 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     }
 
     function deploySafeProxy(uint16 expectedDepositCount) internal returns (Safe) {
-        address[] memory funder_benefactor = new address[](2);
-        funder_benefactor[0] = funder;
-        funder_benefactor[1] = benefactor;
+        address[] memory funder_beneficiary = new address[](2);
+        funder_beneficiary[0] = funder;
+        funder_beneficiary[1] = beneficiary;
 
         uint256 expiry = block.timestamp + expiryDuration;
         bool autoClaimEnabled = false;
@@ -57,7 +57,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
         vm.prank(funder);
         SafeProxy proxy = deployer.assignSafe(
-            expiry, withdrawThreshold, benefactor, autoClaimEnabled, expectedDepositCount, toDepositValue
+            expiry, withdrawThreshold, beneficiary, autoClaimEnabled, expectedDepositCount, toDepositValue
         );
         Safe safe = Safe(payable(address(proxy)));
 
@@ -66,28 +66,28 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
 
     function test_sanity_checks() public {
         // Sanity check
-        (,, address retrievedBenefactor, address retrievedFunder,,) = safeModule.getUserInfo(safe);
-        assertEq(retrievedBenefactor, benefactor, "Benefactor address does not match");
+        (,, address retrievedbeneficiary, address retrievedFunder,,) = safeModule.getUserInfo(safe);
+        assertEq(retrievedbeneficiary, beneficiary, "beneficiary address does not match");
         assertEq(retrievedFunder, funder, "Funder address does not match");
         assertFalse(isExpired(safe), "should not be expired");
         // Both are owners
-        assertTrue(safe.isOwner(benefactor));
+        assertTrue(safe.isOwner(beneficiary));
         assertTrue(safe.isOwner(funder));
     }
 
-    // - with auto claim false, benefactor can withdraw under threshold
-    function test_before_expiry_autoclaim_false_benefactor_under_threshold() public {
+    // - with auto claim false, beneficiary can withdraw under threshold
+    function test_before_expiry_autoclaim_false_beneficiary_under_threshold() public {
         withdrawalToken.mint(address(safe), amountUnderThreshold);
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, amountUnderThreshold);
+        assertBalance(beneficiary, amountUnderThreshold);
     }
 
     // - with auto claim false, anyone reverts
     function test_before_expiry_autoclaim_false_anyone_reverts() public {
         withdrawalToken.mint(address(safe), amountUnderThreshold);
         vm.prank(anyone);
-        vm.expectRevert("only benefactor");
+        vm.expectRevert("only beneficiary");
         safeModule.withdrawBalance(safe, false);
     }
 
@@ -97,24 +97,24 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         withdrawalToken.mint(address(safe), amountUnderThreshold);
         vm.prank(anyone);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, amountUnderThreshold);
+        assertBalance(beneficiary, amountUnderThreshold);
     }
 
-    // - before expiry benefactor can not withdraw over threshold
-    function test_before_expiry_autoclaim_false_benefactor_over_threshold_revert() public {
+    // - before expiry beneficiary can not withdraw over threshold
+    function test_before_expiry_autoclaim_false_beneficiary_over_threshold_revert() public {
         withdrawalToken.mint(address(safe), amountOverThreshold);
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         vm.expectRevert("only funder");
         safeModule.withdrawBalance(safe, false);
     }
 
-    // - after expiry auto claim false benefactor can withdraw above threoshold
-    function test_after_expiry_autoclaim_false_benefactor_above_threshold() public {
+    // - after expiry auto claim false beneficiary can withdraw above threoshold
+    function test_after_expiry_autoclaim_false_beneficiary_above_threshold() public {
         afterExpiry();
         withdrawalToken.mint(address(safe), amountOverThreshold);
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, amountOverThreshold);
+        assertBalance(beneficiary, amountOverThreshold);
     }
 
     // - after expiry auto claim true anyone can trigger withdraw above threoshold
@@ -124,15 +124,15 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         withdrawalToken.mint(address(safe), amountOverThreshold);
         vm.prank(anyone);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, amountOverThreshold);
+        assertBalance(beneficiary, amountOverThreshold);
     }
 
-    // - before expiry funder can trigger withdraw to benefactor above threshold
-    function test_before_expiry_funder_above_threshold_to_benefactor() public {
+    // - before expiry funder can trigger withdraw to beneficiary above threshold
+    function test_before_expiry_funder_above_threshold_to_beneficiary() public {
         withdrawalToken.mint(address(safe), amountOverThreshold);
         vm.prank(funder);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, amountOverThreshold);
+        assertBalance(beneficiary, amountOverThreshold);
     }
 
     // - before expiry funder can trigger withdraw to funder above threshold
@@ -144,19 +144,19 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     }
 
     // - funder can terminate before expiry.
-    //   - benefactor is no longer owner
-    //   - benefactor can not withdraw any amount
+    //   - beneficiary is no longer owner
+    //   - beneficiary can not withdraw any amount
     function test_terminate_before_expiry_funder() public {
         vm.prank(funder);
         safeModule.terminate(safe);
         // Attempt withdrawals
         withdrawalToken.mint(address(safe), amountUnderThreshold);
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         safeModule.withdrawBalance(safe, false);
-        assertBalance(benefactor, 0);
+        assertBalance(beneficiary, 0);
         assertBalance(funder, amountUnderThreshold);
         // Assert new owners
-        assertFalse(safe.isOwner(benefactor));
+        assertFalse(safe.isOwner(beneficiary));
         assertTrue(safe.isOwner(funder));
     }
 
@@ -174,7 +174,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         vm.prank(anyone);
         safeModule.removeFunderOwner(safe);
         // Assert new owners
-        assertTrue(safe.isOwner(benefactor));
+        assertTrue(safe.isOwner(beneficiary));
         assertFalse(safe.isOwner(funder));
     }
 
@@ -185,24 +185,24 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         safeModule.removeFunderOwner(safe);
     }
 
-    // - benefactor can not execute pending deposits
-    function test_execute_deposits_benefactor_revert() public {
+    // - beneficiary can not execute pending deposits
+    function test_execute_deposits_beneficiary_revert() public {
         submitPendingDeposits(4);
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         vm.expectRevert();
-        deployer.executePendingDeposits(benefactor);
+        deployer.executePendingDeposits(beneficiary);
     }
 
     // - funder executes deposit before setting, revert
     function test_execute_deposits_funder_before_submit_revert() public {
         vm.prank(funder);
         vm.expectRevert("not submitted status");
-        deployer.executePendingDeposits(benefactor);
+        deployer.executePendingDeposits(beneficiary);
     }
 
     // - funder executes deposit after submit one deposit
     function test_execute_deposits_funder_after_submit_single() public {
-        benefactor = vm.addr(9); // change benefactor to allow a new safe
+        beneficiary = vm.addr(9); // change beneficiary to allow a new safe
         safe = deploySafeProxy(1); // re-deploy safe expecting single deposit
         submitPendingDeposits(1);
         executePendingDeposits(1, 1 ether);
@@ -214,11 +214,11 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         executePendingDeposits(4, 1 ether);
     }
 
-    // - benefactor can resubmit deposits after reset
+    // - beneficiary can resubmit deposits after reset
     function test_resubmit_deposits_after_reset() public {
         submitPendingDeposits(4);
         vm.prank(funder);
-        deployer.clearPendingDeposits(benefactor);
+        deployer.clearPendingDeposits(beneficiary);
         submitPendingDeposits(4);
         executePendingDeposits(4, 1 ether);
     }
@@ -252,7 +252,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
     }
 
     function enableAutoClaim() internal {
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         safeModule.setAutoClaim(safe, true);
     }
 
@@ -268,7 +268,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         // Fund deployer for deposits
         withdrawalToken.mint(address(deployer), numDeposits * depositValue);
         vm.prank(funder);
-        deployer.executePendingDeposits(benefactor);
+        deployer.executePendingDeposits(beneficiary);
     }
 
     function submitPendingDeposits(uint256 numDeposits) internal {
@@ -285,7 +285,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
             deposit_data_roots[i] = deposit_data_root;
         }
 
-        vm.prank(benefactor);
+        vm.prank(beneficiary);
         deployer.submitPendingDeposits(pubkeys, signatures, deposit_data_roots);
     }
 

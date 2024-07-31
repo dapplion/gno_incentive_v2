@@ -4,7 +4,7 @@
 # Must do this actions:
 # - Assign safe to user at start of program
 # - Terminate safe at end of program
-export OWNER=0x0000000000000000000000000000000000000000
+export OWNER=0x18eE60706Ed150f6E21D020C1Cede55E4267f409
 
 ### Gnosis network addresses
 # Gnosis v1.4.1 https://github.com/safe-global/safe-deployments/blob/bb7f75f6c09dc737b73ee9622a5167591bcab8ac/src/assets/v1.4.1/safe_proxy_factory.json#L7
@@ -34,7 +34,8 @@ forge script DeployScript \
   -vvvv \
   --rpc-url https://rpc.gnosis.gateway.fm \
   --broadcast \
-  --private-key $RAW_PRIVATE_KEY \
+  --sender $OWNER \
+  --ledger \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --verify \
   --legacy
