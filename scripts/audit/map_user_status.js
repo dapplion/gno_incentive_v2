@@ -7,7 +7,7 @@ const DEPOSITS_CSV   = path.resolve("deposit_events.csv");     // DepositEvent r
 const USERS_CSV      = path.resolve("registered_users.csv");   // RegisteredUser rows
 const OUT_CSV        = path.resolve("withdrawal_status.csv");
 
-const RPC_GBC        = "https://rpc-gbc.gnosischain.com";
+const RPC_GBC        = process.env.RPC_GBC || "https://rpc-gbc.gnosischain.com";
 const CONC_LIMIT     = 5;                       // parallel validator RPCs
 
 const SLOTS_PER_EPOCH = 16;

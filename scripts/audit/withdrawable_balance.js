@@ -8,9 +8,8 @@ import pLimit from "p-limit";
 const USERS_CSV   = path.resolve("registered_users.csv");          // block_number,event,beneficiary,safe
 const OUT_CSV     = path.resolve("withdrawable_balances.csv");
 
-const RPC_URL     = "https://rpc.ankr.com/gnosis/" +          // put your key after the slash if needed
-                    "a8516201036e8ef56434e5fe19d84b9004dd5b466ff0735c8aafe83e6f9bd250";
-const CONTRACT    = "0x0B98057eA310F4d31F2a452B414647007d1645d9";
+const RPC_URL     = process.env.RPC_URL || "https://rpc.gnosischain.com";
+const CONTRACT    = process.env.DEPOSIT_CONTRACT || "0x0B98057eA310F4d31F2a452B414647007d1645d9";
 const ABI         = ["function withdrawableAmount(address) view returns (uint256)"];
 
 const CONC_LIMIT  = 5;                                        // parallel reads

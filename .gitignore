@@ -8,7 +8,7 @@ out/
 /broadcast/**/dry-run/
 
 # script cache
-.csv
+*.csv
 scripts/audit/node_modules
 
 # Docs

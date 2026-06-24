@@ -4,8 +4,8 @@ import fs from "fs";
 import path from "path";
 
 // ------------------------------------------------------------------ config ---
-const RPC_URL     = "https://rpc.ankr.com/gnosis/a8516201036e8ef56434e5fe19d84b9004dd5b466ff0735c8aafe83e6f9bd250";
-const CONTRACT    = "0x485c6Be503D32511c1282b68dD99E85f250572c3";
+const RPC_URL     = process.env.RPC_URL || "https://rpc.gnosischain.com";
+const CONTRACT    = process.env.DEPLOYER || "0x485c6Be503D32511c1282b68dD99E85f250572c3";
 const START_BLOCK = 35_247_675;          // fallback when no cache
 const BATCH_SIZE  = 10_000;
 const CSV_FILE    = path.resolve("registered_users.csv");
