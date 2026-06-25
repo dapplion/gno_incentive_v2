@@ -237,8 +237,7 @@ contract GnosisDAppNodeIncentiveV2DeployerTest is Test {
         uint256 stake_amount = 1 ether;
         bytes32 deposit_data_root = computeDataRoot(pubkey, withdrawal_credentials, signature, stake_amount);
         assertEq(deposit_data_root, expected_deposit_data_root);
-        vm.expectRevert();
-        assertEq(deposit_data_root, expected_deposit_message_root);
+        assertNotEq(deposit_data_root, expected_deposit_message_root);
     }
 
     function isExpired(Safe safe) public returns (bool) {
